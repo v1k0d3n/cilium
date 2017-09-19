@@ -120,8 +120,19 @@ func (p *Repository) ResolveL4Policy(ctx *SearchContext) (*L4Policy, error) {
 	}
 
 	state := traceState{}
+	curRuleID := state.ruleID
 	for _, r := range p.rules {
 		_, err := r.resolveL4Policy(ctx, &state, result)
+		if err != nil {
+			return nil, err
+		}
+		state.ruleID++
+	}
+
+	ctx.PolicyTrace("Resolving ingress visibility rules for %+v\n", ctx.To)
+	state.ruleID = curRuleID
+	for _, r := range p.rules {
+		_, err := r.resolveIngressVisibility(ctx, &state, result)
 		if err != nil {
 			return nil, err
 		}
