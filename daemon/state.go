@@ -77,11 +77,10 @@ func (d *Daemon) SyncState(dir string, clean bool) error {
 		d.cleanUpDockerDanglingEndpoints()
 	}
 
-	endpointmanager.Mutex.Lock()
-	nEndpoints := len(endpointmanager.Endpoints)
+	eps := endpointmanager.GetEndpoints()
+	nEndpoints := len(eps)
 	wg := make(chan bool, nEndpoints)
-	for k := range endpointmanager.Endpoints {
-		ep := endpointmanager.Endpoints[k]
+	for _, ep := range eps {
 		go func(ep *endpoint.Endpoint, wg chan<- bool) {
 			if err := d.allocateIPs(ep); err != nil {
 				log.Errorf("Failed to re-allocate IP of endpoint %d. Not restoring endpoint. %s", ep.ID, err)
@@ -107,7 +106,6 @@ func (d *Daemon) SyncState(dir string, clean bool) error {
 			wg <- true
 		}(ep, wg)
 	}
-	endpointmanager.Mutex.Unlock()
 
 	restored, total := 0, 0
 	if nEndpoints > 0 {
@@ -248,8 +246,8 @@ func (d *Daemon) cleanUpDockerDanglingEndpoints() {
 		d.deleteEndpoint(ep)
 	}
 
-	for k := range endpointmanager.Endpoints {
-		ep := endpointmanager.Endpoints[k]
+	eps := endpointmanager.GetEndpoints()
+	for _, ep := range eps {
 		ep.Mutex.RLock()
 		log.Debugf("Checking if endpoint %d is running in docker", ep.ID)
 		// If we have a DockerNetworkID it means it was setup by libnetwork

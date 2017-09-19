@@ -242,16 +242,14 @@ func (d *Daemon) handleCreateContainer(id string, retry bool) {
 			// the IP address assigned.
 			cid := getCiliumEndpointID(dockerContainer)
 			if cid != 0 {
-				endpointmanager.Mutex.Lock()
-				ep = endpointmanager.LookupCiliumIDLocked(cid)
+				ep = endpointmanager.LookupCiliumID(cid)
 				if ep != nil {
 					// Associate container id with endpoint
 					ep.Mutex.Lock()
 					ep.DockerID = id
-					ep.Mutex.Unlock()
 					endpointmanager.LinkContainerID(ep)
+					ep.Mutex.Unlock()
 				}
-				endpointmanager.Mutex.Unlock()
 			}
 		}
 
@@ -275,8 +273,8 @@ func (d *Daemon) handleCreateContainer(id string, retry bool) {
 				log.Debugf("endpoint %d pod name set to %s", ep.PodName)
 			}
 		}
-		ep.Mutex.Unlock()
 		endpointmanager.UpdateReferences(ep)
+		ep.Mutex.Unlock()
 
 		d.containersMU.RLock()
 		cont, ok := d.containers[id]

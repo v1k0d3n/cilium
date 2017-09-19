@@ -59,51 +59,47 @@ func NewGetEndpointHandler(d *Daemon) GetEndpointHandler {
 func (h *getEndpoint) Handle(params GetEndpointParams) middleware.Responder {
 	log.Debugf("GET /endpoint request: %+v", params)
 
-	var wg sync.WaitGroup
+	var (
+		wg              sync.WaitGroup
+		convertedLabels labels.Labels
+		resEPs          []*models.Endpoint
+	)
 
-	if params.Labels == nil {
-		i := 0
-		endpointmanager.Mutex.RLock()
-		eps := make([]*models.Endpoint, len(endpointmanager.Endpoints))
-		wg.Add(len(endpointmanager.Endpoints))
-		for k := range endpointmanager.Endpoints {
-			go func(wg *sync.WaitGroup, i int, ep *endpoint.Endpoint) {
-				eps[i] = ep.GetModel()
-				wg.Done()
-			}(&wg, i, endpointmanager.Endpoints[k])
-			i++
-		}
-		endpointmanager.Mutex.RUnlock()
-		wg.Wait()
-		return NewGetEndpointOK().WithPayload(eps)
-	} else {
-		eps := []*models.Endpoint{}
+	eps := endpointmanager.GetEndpoints()
 
+	if params.Labels != nil {
 		// Convert params.Labels to model that we can compare with the endpoint's labels.
-		convertedLabels := labels.NewLabelsFromModel(params.Labels)
-
-		endpointmanager.Mutex.RLock()
-
-		wg.Add(len(endpointmanager.Endpoints))
-		for k := range endpointmanager.Endpoints {
-			go func(wg *sync.WaitGroup, ep *endpoint.Endpoint) {
-				ep.Mutex.RLock()
-				if ep.HasLabels(convertedLabels) {
-					eps = append(eps, ep.GetModel())
-				}
-				ep.Mutex.RUnlock()
-				wg.Done()
-			}(&wg, endpointmanager.Endpoints[k])
-		}
-		endpointmanager.Mutex.RUnlock()
-		wg.Wait()
-
-		if len(eps) == 0 {
-			return NewGetEndpointNotFound()
-		}
-
-		return NewGetEndpointOK().WithPayload(eps)
+		convertedLabels = labels.NewLabelsFromModel(params.Labels)
 	}
+
+	epChan := make(chan *models.Endpoint, len(eps))
+	finishAppend := make(chan struct{})
+
+	wg.Add(len(eps))
+	for k := range eps {
+		go func(wg *sync.WaitGroup, epChan chan<- *models.Endpoint, ep *endpoint.Endpoint) {
+			if ep.HasLabels(convertedLabels) {
+				epChan <- ep.GetModel()
+			}
+			wg.Done()
+		}(&wg, epChan, eps[k])
+	}
+
+	go func() {
+		for ep := range epChan {
+			resEPs = append(resEPs, ep)
+		}
+		close(finishAppend)
+	}()
+	wg.Wait()
+	close(epChan)
+	<-finishAppend
+
+	if params.Labels != nil && len(resEPs) == 0 {
+		return NewGetEndpointNotFound()
+	}
+
+	return NewGetEndpointOK().WithPayload(resEPs)
 }
 
 type getEndpointID struct {
@@ -159,10 +155,7 @@ func (h *putEndpointID) Handle(params PutEndpointIDParams) middleware.Responder 
 	ep.SetDefaultOpts(h.d.conf.Opts)
 	ep.Opts.Set(endpoint.OptionPolicy, h.d.EnablePolicyEnforcement())
 
-	endpointmanager.Mutex.Lock()
-	defer endpointmanager.Mutex.Unlock()
-
-	oldEp, err2 := endpointmanager.LookupLocked(params.ID)
+	oldEp, err2 := endpointmanager.Lookup(params.ID)
 	if err2 != nil {
 		return apierror.Error(GetEndpointIDInvalidCode, err2)
 	} else if oldEp != nil {
@@ -179,14 +172,14 @@ func (h *putEndpointID) Handle(params PutEndpointIDParams) middleware.Responder 
 		return apierror.Error(PatchEndpointIDFailedCode, err)
 	}
 
+	ep.RLock()
 	endpointmanager.Insert(ep)
+	ep.RUnlock()
 
 	add := labels.NewLabelsFromModel(params.Endpoint.Labels)
 
 	if len(add) > 0 {
-		endpointmanager.Mutex.Unlock()
 		errLabelsAdd := h.d.UpdateSecLabels(params.ID, add, labels.Labels{})
-		endpointmanager.Mutex.Lock()
 		if errLabelsAdd != nil {
 			log.Errorf("Could not add labels %v while creating an ep %s due to %s", add, params.ID, errLabelsAdd)
 			return errLabelsAdd
@@ -344,7 +337,7 @@ func (d *Daemon) deleteEndpoint(ep *endpoint.Endpoint) int {
 		}
 	}
 
-	endpointmanager.RemoveLocked(ep)
+	endpointmanager.Remove(ep)
 
 	if !d.conf.IPv4Disabled {
 		if err := d.ReleaseIP(ep.IPv4.IP()); err != nil {
@@ -362,10 +355,7 @@ func (d *Daemon) deleteEndpoint(ep *endpoint.Endpoint) int {
 }
 
 func (d *Daemon) DeleteEndpoint(id string) (int, error) {
-	endpointmanager.Mutex.Lock()
-	defer endpointmanager.Mutex.Unlock()
-
-	if ep, err := endpointmanager.LookupLocked(id); err != nil {
+	if ep, err := endpointmanager.Lookup(id); err != nil {
 		return 0, apierror.Error(DeleteEndpointIDInvalidCode, err)
 	} else if ep == nil {
 		return 0, apierror.New(DeleteEndpointIDNotFoundCode, "endpoint not found")
@@ -415,7 +405,9 @@ func (d *Daemon) EndpointUpdate(id string, opts models.ConfigurationMap) error {
 				return apierror.Error(PatchEndpointIDConfigFailedCode, err)
 			}
 		}
+		ep.RLock()
 		endpointmanager.UpdateReferences(ep)
+		ep.RUnlock()
 	} else {
 		return apierror.New(PatchEndpointIDConfigNotFoundCode, "endpoint %s not found", id)
 	}
