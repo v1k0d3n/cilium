@@ -4,7 +4,7 @@ SUBDIRS = plugins bpf cilium daemon monitor
 GOFILES = $(shell go list ./... | grep -v /vendor/)
 GOLANGVERSION = $(shell go version 2>/dev/null | grep -Eo '(go[0-9].[0-9])')
 
-GOTEST_OPTS = -test.v -check.v
+GOTEST_OPTS = -test.v
 
 all: precheck-gofmt build
 
@@ -35,7 +35,7 @@ tests-etcd:
 	$(foreach pkg,$(GOFILES),\
 	go test \
             -ldflags "-X "github.com/cilium/cilium/pkg/kvstore".backend=etcd" \
-            -timeout 30s -coverprofile=coverage.out -covermode=count $(pkg) $(GOTEST_OPTS) || exit 1;\
+            -timeout 45s -coverprofile=coverage.out -covermode=count $(pkg) $(GOTEST_OPTS) || exit 1;\
             tail -n +2 coverage.out >> coverage-all.out;)
 	go tool cover -html=coverage-all.out -o=coverage-all.html
 	rm coverage-all.out
@@ -56,7 +56,7 @@ tests-consul:
 	$(foreach pkg,$(GOFILES),\
 	go test \
             -ldflags "-X "github.com/cilium/cilium/pkg/kvstore".backend=consul" \
-            -timeout 30s -coverprofile=coverage.out -covermode=count $(pkg) $(GOTEST_OPTS) || exit 1;\
+            -timeout 45s -coverprofile=coverage.out -covermode=count $(pkg) $(GOTEST_OPTS) || exit 1;\
             tail -n +2 coverage.out >> coverage-all.out;)
 	go tool cover -html=coverage-all.out -o=coverage-all.html
 	rm coverage-all.out

@@ -176,6 +176,9 @@ func (ds *DaemonSuite) generateEPs(baseDir string, epsWanted []*e.Endpoint, epsM
 }
 
 func (ds *DaemonSuite) TestReadEPsFromDirNames(c *C) {
+	// Needs to be less than 1 second otherwise GetCachedMaxLabelID might
+	// not work properly
+	ds.d.EnableKVStoreWatcher(time.Nanosecond)
 	epsWanted, epsMap := createEndpoints()
 	tmpDir, err := ioutil.TempDir("", "cilium-tests")
 	defer func() {
@@ -262,6 +265,9 @@ func networksMock() func(req *http.Request) (*http.Response, error) {
 }
 
 func (ds *DaemonSuite) TestCleanUpDockerDangling(c *C) {
+	// Needs to be less than 1 second otherwise GetCachedMaxLabelID might
+	// not work properly
+	ds.d.EnableKVStoreWatcher(time.Nanosecond)
 	epsWanted, epsMap := createEndpoints()
 	var err error
 
@@ -288,6 +294,9 @@ func (ds *DaemonSuite) TestCleanUpDockerDangling(c *C) {
 }
 
 func (ds *DaemonSuite) TestSyncLabels(c *C) {
+	// Needs to be less than 1 second otherwise GetCachedMaxLabelID might
+	// not work properly
+	ds.d.EnableKVStoreWatcher(time.Nanosecond)
 	epsWanted, _ := createEndpoints()
 
 	ep1 := epsWanted[0]
@@ -321,6 +330,9 @@ func (ds *DaemonSuite) TestSyncLabels(c *C) {
 }
 
 func (ds *DaemonSuite) TestAllocateIP(c *C) {
+	// Needs to be less than 1 second otherwise GetCachedMaxLabelID might
+	// not work properly
+	ds.d.EnableKVStoreWatcher(time.Nanosecond)
 	epsWanted, _ := createEndpoints()
 
 	ep1 := epsWanted[0]

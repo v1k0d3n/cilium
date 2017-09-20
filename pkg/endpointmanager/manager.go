@@ -21,11 +21,12 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 
 	log "github.com/Sirupsen/logrus"
+	go_deadlock "github.com/sasha-s/go-deadlock"
 )
 
 var (
 	// mutex protects endpoints and endpointsAux
-	mutex sync.RWMutex
+	mutex go_deadlock.RWMutex
 
 	// endpoints is the global list of endpoints indexed by ID. mutex must
 	// be held to read and write.
@@ -224,11 +225,10 @@ func updateReferences(ep *endpoint.Endpoint) {
 func TriggerPolicyUpdates(owner endpoint.Owner) *sync.WaitGroup {
 	var wg sync.WaitGroup
 
-	mutex.RLock()
+	eps := GetEndpoints()
+	wg.Add(len(eps))
 
-	wg.Add(len(endpoints))
-
-	for k := range endpoints {
+	for _, ep := range eps {
 		go func(ep *endpoint.Endpoint, wg *sync.WaitGroup) {
 			policyChanges, err := ep.TriggerPolicyUpdates(owner)
 			if err != nil {
@@ -241,18 +241,16 @@ func TriggerPolicyUpdates(owner endpoint.Owner) *sync.WaitGroup {
 				<-ep.Regenerate(owner)
 			}
 			wg.Done()
-		}(endpoints[k], &wg)
+		}(ep, &wg)
 	}
-	mutex.RUnlock()
 
 	return &wg
 }
 
 // HasGlobalCT returns true if the endpoints have a global CT, false otherwise.
 func HasGlobalCT() bool {
-	mutex.RLock()
-	defer mutex.RUnlock()
-	for _, e := range endpoints {
+	eps := GetEndpoints()
+	for _, e := range eps {
 		e.RLock()
 		globalCT := e.Consumable != nil && !e.Opts.IsEnabled(endpoint.OptionConntrackLocal)
 		e.RUnlock()

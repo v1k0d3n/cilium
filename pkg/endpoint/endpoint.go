@@ -40,6 +40,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 
 	log "github.com/Sirupsen/logrus"
+	go_deadlock "github.com/sasha-s/go-deadlock"
 )
 
 var (
@@ -189,7 +190,7 @@ type Endpoint struct {
 	ID uint16
 
 	// Mutex protects write operations to this endpoint structure
-	Mutex sync.RWMutex
+	Mutex go_deadlock.RWMutex
 
 	// ContainerName is the name given to the endpoint by the container runtime
 	ContainerName string

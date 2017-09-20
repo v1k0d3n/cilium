@@ -36,6 +36,9 @@ var (
 )
 
 func (ds *DaemonSuite) TestUpdateConsumerMap(c *C) {
+	// Needs to be less than 1 second otherwise GetCachedMaxLabelID might
+	// not work properly
+	ds.d.EnableKVStoreWatcher(time.Nanosecond)
 	lblProd := labels.ParseLabel("Prod")
 	lblQA := labels.ParseLabel("QA")
 	lblFoo := labels.ParseLabel("foo")
@@ -150,6 +153,9 @@ func (ds *DaemonSuite) TestUpdateConsumerMap(c *C) {
 }
 
 func (ds *DaemonSuite) TestReplacePolicy(c *C) {
+	// Needs to be less than 1 second otherwise GetCachedMaxLabelID might
+	// not work properly
+	ds.d.EnableKVStoreWatcher(time.Nanosecond)
 	lblBar := labels.ParseLabel("bar")
 	lbls := labels.ParseLabelArray("foo", "bar")
 	rules := api.Rules{
