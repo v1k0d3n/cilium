@@ -96,14 +96,14 @@ func (dm L7DataMap) addRulesForEndpoints(rules api.L7Rules,
 // This L4Filter will only apply to endpoints covered by `fromEndpoints`.
 // `rule` allows a series of L7 rules to be associated with this L4Filter.
 func CreateL4Filter(fromEndpoints []api.EndpointSelector, rule api.PortRule, port api.PortProtocol,
-	direction string, protocol api.L4Proto) L4Filter {
+	direction string) L4Filter {
 
 	// already validated via PortRule.Validate()
 	p, _ := strconv.ParseUint(port.Port, 0, 16)
 
 	l4 := L4Filter{
 		Port:           int(p),
-		Protocol:       protocol,
+		Protocol:       port.Protocol,
 		L7RedirectPort: rule.RedirectPort,
 		L7RulesPerEp:   make(map[uint64]api.L7Rules),
 		FromEndpoints:  fromEndpoints,
