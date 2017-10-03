@@ -118,7 +118,13 @@ func (d *Daemon) UpdateProxyRedirect(e *endpoint.Endpoint, l4 *policy.L4Filter) 
 	}
 
 	log.Debugf("Adding redirect %+v to endpoint %d", l4, e.ID)
-	r, err := d.l7Proxy.CreateOrUpdateRedirect(l4, e.ProxyID(l4), e, proxy.ProxyKindEnvoy)
+
+	proxyKind := proxy.ProxyKindOxy
+	if useEnvoy {
+		proxyKind = proxy.ProxyKindEnvoy
+	}
+	r, err := d.l7Proxy.CreateOrUpdateRedirect(l4, e.ProxyID(l4), e, proxyKind)
+
 	if err != nil {
 		return 0, err
 	}
