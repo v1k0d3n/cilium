@@ -187,6 +187,8 @@ func (p *Proxy) CreateOrUpdateRedirect(l4 *policy.L4Filter, id string, source Pr
 	var redir Redirect
 	if kind == ProxyKindOxy {
 		redir, err = createOxyRedirect(l4, id, source, to)
+	} else if kind == ProxyKindEnvoy {
+		redir, err = createEnvoyRedirect(l4, id, source, to)
 	} else {
 		return nil, fmt.Errorf("Unknown proxy kind: %s", kind)
 	}
