@@ -168,3 +168,78 @@ func (s *IPTestSuite) TestByteFunctions(c *C) {
 	}
 
 }
+
+func (s *IPTestSuite) TestCoalesceCIDRs(c *C) {
+
+	cidrs := []*net.IPNet{createIPNet("192.0.128.0", 24, int(ipv4BitLen)),
+		createIPNet("192.0.129.0", 24, int(ipv4BitLen))}
+	expected := []*net.IPNet{createIPNet("192.0.128.0", 23, int(ipv4BitLen))}
+	mergedCIDRs := CoalesceCIDRs(cidrs)
+	s.testIPNetsEqual(mergedCIDRs, expected, c)
+
+	cidrs = []*net.IPNet{createIPNet("192.0.129.0", 24, int(ipv4BitLen)),
+		createIPNet("192.0.130.0", 24, int(ipv4BitLen))}
+	expected = []*net.IPNet{createIPNet("192.0.129.0", 24, int(ipv4BitLen)),
+		createIPNet("192.0.130.0", 24, int(ipv4BitLen))}
+	mergedCIDRs = CoalesceCIDRs(cidrs)
+	s.testIPNetsEqual(mergedCIDRs, expected, c)
+
+	cidrs = []*net.IPNet{createIPNet("192.0.2.112", 30, int(ipv4BitLen)),
+		createIPNet("192.0.2.116", 31, int(ipv4BitLen)),
+		createIPNet("192.0.2.118", 31, int(ipv4BitLen))}
+	expected = []*net.IPNet{createIPNet("192.0.2.112", 29, int(ipv4BitLen))}
+	mergedCIDRs = CoalesceCIDRs(cidrs)
+	s.testIPNetsEqual(mergedCIDRs, expected, c)
+
+	cidrs = []*net.IPNet{createIPNet("192.0.2.112", 30, int(ipv4BitLen)),
+		createIPNet("192.0.2.116", 32, int(ipv4BitLen)),
+		createIPNet("192.0.2.118", 31, int(ipv4BitLen))}
+	expected = []*net.IPNet{createIPNet("192.0.2.112", 30, int(ipv4BitLen)),
+		createIPNet("192.0.2.116", 32, int(ipv4BitLen)),
+		createIPNet("192.0.2.118", 31, int(ipv4BitLen))}
+	mergedCIDRs = CoalesceCIDRs(cidrs)
+	s.testIPNetsEqual(mergedCIDRs, expected, c)
+
+	cidrs = []*net.IPNet{createIPNet("192.0.2.112", 31, int(ipv4BitLen)),
+		createIPNet("192.0.2.116", 31, int(ipv4BitLen)),
+		createIPNet("192.0.2.118", 31, int(ipv4BitLen))}
+	expected = []*net.IPNet{createIPNet("192.0.2.112", 31, int(ipv4BitLen)),
+		createIPNet("192.0.2.116", 30, int(ipv4BitLen))}
+	mergedCIDRs = CoalesceCIDRs(cidrs)
+	s.testIPNetsEqual(mergedCIDRs, expected, c)
+
+	cidrs = []*net.IPNet{createIPNet("192.0.1.254", 31, int(ipv4BitLen)),
+		createIPNet("192.0.2.0", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.16", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.32", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.48", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.64", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.80", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.96", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.112", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.128", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.144", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.160", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.176", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.192", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.208", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.224", 28, int(ipv4BitLen)),
+		createIPNet("192.0.2.240", 28, int(ipv4BitLen)),
+		createIPNet("192.0.3.0", 28, int(ipv4BitLen)),
+	}
+	expected = []*net.IPNet{createIPNet("192.0.1.254", 31, int(ipv4BitLen)),
+		createIPNet("192.0.2.0", 24, int(ipv4BitLen)),
+		createIPNet("192.0.3.0", 28, int(ipv4BitLen))}
+	mergedCIDRs = CoalesceCIDRs(cidrs)
+	s.testIPNetsEqual(mergedCIDRs, expected, c)
+
+	//v6 merge tests
+	//assert cidr_merge(['::/0', 'fe80::1']) == [IPNetwork('::/0')]
+	// TODO support default route parsing?
+	//cidrs = []*net.IPNet{createIPNet("::", 0, int(ipv6BitLen)),
+	//	createIPNet("fe80::1", 128, int(ipv6BitLen))}
+	//assert cidr_merge(['::/0', '::']) == [IPNetwork('::/0')]
+	//assert cidr_merge(['::/0', '::192.0.2.0/124', 'ff00::101']) == [IPNetwork('::/0')]
+	//assert cidr_merge(['0.0.0.0/0', '0.0.0.0', '::/0', '::']) == [IPNetwork('0.0.0.0/0'), IPNetwork('::/0')]
+
+}
