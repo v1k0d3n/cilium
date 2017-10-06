@@ -27,4 +27,18 @@ const (
 
 	// Identity is the identifier of a security identity
 	Identity = "identity"
+
+	// L3PolicyID is the identifier of a L3 Policy
+	L3PolicyID = "l3PolicyID"
+
+	// L4PolicyID is the identifier of a L4 Policy
+	L4PolicyID = "l4PolicyID"
+
+	K8sPodName            = "k8sPodName"
+	K8sNamespace          = "k8sNamespace"
+	K8sIdentityAnnotation = "k8sIdentityAnnotation"
+	IPTableRule           = "ipTableRule"
+	IPAddr                = "ipAddr"
+	V4Prefix              = "v4Prefix"
+	V6Prefix              = "v6Prefix"
 )
