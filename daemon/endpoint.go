@@ -43,7 +43,9 @@ func NewGetEndpointHandler(d *Daemon) GetEndpointHandler {
 }
 
 func (h *getEndpoint) Handle(params GetEndpointParams) middleware.Responder {
-	log.Debugf("GET /endpoint request: %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("GET /endpoint request")
 
 	var wg sync.WaitGroup
 
@@ -101,7 +103,9 @@ func NewGetEndpointIDHandler(d *Daemon) GetEndpointIDHandler {
 }
 
 func (h *getEndpointID) Handle(params GetEndpointIDParams) middleware.Responder {
-	log.Debugf("GET /endpoint/{id} request: %+v", params.ID)
+	log.WithFields(log.Fields{
+		logfields.EndpointID: params.ID,
+	}).Debug("GET /endpoint/{id} request")
 
 	ep, err := endpointmanager.Lookup(params.ID)
 
@@ -123,7 +127,9 @@ func NewPutEndpointIDHandler(d *Daemon) PutEndpointIDHandler {
 }
 
 func (h *putEndpointID) Handle(params PutEndpointIDParams) middleware.Responder {
-	log.Debugf("PUT /endpoint/{id} request: %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("PUT /endpoint/{id} request")
 
 	epTemplate := params.Endpoint
 	if n, err := endpoint.ParseCiliumID(params.ID); err != nil {
@@ -193,7 +199,9 @@ func NewPatchEndpointIDHandler(d *Daemon) PatchEndpointIDHandler {
 }
 
 func (h *patchEndpointID) Handle(params PatchEndpointIDParams) middleware.Responder {
-	log.Debugf("PATCH /endpoint/{id} %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("PATCH /endpoint/{id}")
 
 	epTemplate := params.Endpoint
 
@@ -382,7 +390,9 @@ func NewDeleteEndpointIDHandler(d *Daemon) DeleteEndpointIDHandler {
 }
 
 func (h *deleteEndpointID) Handle(params DeleteEndpointIDParams) middleware.Responder {
-	log.Debugf("DELETE /endpoint/{id} %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("DELETE /endpoint/{id}")
 
 	d := h.daemon
 	if nerr, err := d.DeleteEndpoint(params.ID); err != nil {
@@ -431,7 +441,9 @@ func NewPatchEndpointIDConfigHandler(d *Daemon) PatchEndpointIDConfigHandler {
 }
 
 func (h *patchEndpointIDConfig) Handle(params PatchEndpointIDConfigParams) middleware.Responder {
-	log.Debugf("PATCH /endpoint/{id}/config %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("PATCH /endpoint/{id}/config")
 
 	d := h.daemon
 	if err := d.EndpointUpdate(params.ID, params.Configuration); err != nil {
@@ -453,7 +465,9 @@ func NewGetEndpointIDConfigHandler(d *Daemon) GetEndpointIDConfigHandler {
 }
 
 func (h *getEndpointIDConfig) Handle(params GetEndpointIDConfigParams) middleware.Responder {
-	log.Debugf("GET /endpoint/{id}/config %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("GET /endpoint/{id}/config")
 
 	ep, err := endpointmanager.Lookup(params.ID)
 	if err != nil {
@@ -474,7 +488,9 @@ func NewGetEndpointIDLabelsHandler(d *Daemon) GetEndpointIDLabelsHandler {
 }
 
 func (h *getEndpointIDLabels) Handle(params GetEndpointIDLabelsParams) middleware.Responder {
-	log.Debugf("GET /endpoint/{id}/labels %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("GET /endpoint/{id}/labels")
 
 	ep, err := endpointmanager.Lookup(params.ID)
 	if err != nil {
@@ -600,7 +616,9 @@ func NewPutEndpointIDLabelsHandler(d *Daemon) PutEndpointIDLabelsHandler {
 func (h *putEndpointIDLabels) Handle(params PutEndpointIDLabelsParams) middleware.Responder {
 	d := h.daemon
 
-	log.Debugf("PUT /endpoint/{id}/labels %+v", params)
+	log.WithFields(log.Fields{
+		"params": params,
+	}).Debug("PUT /endpoint/{id}/labels")
 
 	mod := params.Configuration
 	add := labels.NewLabelsFromModel(mod.Add)
