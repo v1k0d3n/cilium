@@ -78,7 +78,10 @@ func SetupVeth(id string, mtu int, ep *models.EndpointChangeRequest) (*netlink.V
 		}
 	}()
 
-	log.Debugf("Created veth pair %s <-> %s", lxcIfName, veth.PeerName)
+	// REVIEW What should these be called? just veth1 and veth2? We can't use the same label
+	log.WithFields(log.Fields{
+		"veth": []string{veth.PeerName, lxcIfName},
+	}).Debug("Created veth pair")
 
 	// Disable reverse path filter on the host side veth peer to allow
 	// container addresses to be used as source address when the linux
