@@ -34,6 +34,8 @@ const (
 	// L4PolicyID is the identifier of a L4 Policy
 	L4PolicyID = "l4PolicyID"
 
+	// REVIEW Should this match pkg/proxy/accesslog.FieldFilePath ?
+	Path                  = "path"
 	K8sPodName            = "k8sPodName"
 	K8sNamespace          = "k8sNamespace"
 	K8sIdentityAnnotation = "k8sIdentityAnnotation"
