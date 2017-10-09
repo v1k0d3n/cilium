@@ -43,4 +43,7 @@ const (
 	IPAddr                = "ipAddr"
 	V4Prefix              = "v4Prefix"
 	V6Prefix              = "v6Prefix"
+
+	ServiceName = "serviceName"
+	ServiceSHA  = "serviceSHA"
 )
