@@ -12,22 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package logfields defines common logging fields which are used across packages
-package logfields
+package proxy
+
+import (
+	"time"
+)
 
 const (
-	// EndpointID is the numeric endpoint identifier
-	EndpointID = "endpointID"
+	// Size of channel (number of requests/messages) which buffers messages
+	// enqueued onto proxy sockets
+	socketQueueSize = 100
 
-	// ContainerID is the container identifier
-	ContainerID = "containerID"
-
-	// IdentityLabels are the labels relevant for the security identity
-	IdentityLabels = "identityLabels"
-
-	// Identity is the identifier of a security identity
-	Identity = "identity"
-
-	// Subsys is set to the subsystem where the log message is being emitted
-	Subsys = "subsys"
+	// proxyConnectionCloseTimeout is the time to wait before closing both
+	// connections of a proxied connection after one side has initiated the
+	// closing and the other side is not being closed.
+	proxyConnectionCloseTimeout = time.Minute * 2
 )

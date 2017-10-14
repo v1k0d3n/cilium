@@ -25,7 +25,6 @@ const (
 	// fieldNodeName is the Kubernetes node name where the agent is running on
 	fieldNodeName = "nodeName"
 
-	// fieldSubsys is set to subsysKubernetes on all Kubernetes logging messages
-	fieldSubsys      = "subsys"
+	// subsysKubernetes is the value for logfields.Subsys on all Kubernetes logging messages
 	subsysKubernetes = "kubernetes"
 )

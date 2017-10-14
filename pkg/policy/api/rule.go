@@ -16,7 +16,9 @@ package api
 
 import (
 	"github.com/cilium/cilium/pkg/labels"
+
 	"regexp"
+	"strings"
 )
 
 // Rule is a policy rule which must be applied to all endpoints which match the
@@ -392,6 +394,22 @@ type PortRuleKafka struct {
 	// +optional
 	APIKey string `json:"apiKey,omitempty"`
 
+	// ClientID is the client identifier as provided in the request.
+	//
+	// From Kafka protocol documentation:
+	// This is a user supplied identifier for the client application. The
+	// user can use any identifier they like and it will be used when
+	// logging errors, monitoring aggregates, etc. For example, one might
+	// want to monitor not just the requests per second overall, but the
+	// number coming from each client application (each of which could
+	// reside on multiple servers). This id acts as a logical grouping
+	// across all requests from a particular client.
+	//
+	// If omitempty or empty, all client identifiers are allowed.
+	//
+	// +optional
+	ClientID string `json:"clientID,omitempty"`
+
 	// Topic is a regex matched against the topic of the
 	// Kafka message. Ignored if the matched request message type doesn't
 	// contain any topic. Maximum size of Topic can be 249 characters as
@@ -405,12 +423,22 @@ type PortRuleKafka struct {
 	//
 	// +optional
 	Topic string `json:"topic,omitempty"`
+
+	// --------------------------------------------------------------------
+	// Private fields. These fields are used internally and are not exposed
+	// via the API.
+
+	// apiKeyInt is the integer representation of APIKey
+	apiKeyInt int16
+
+	// apiVersionInt is the integer representation of APIVersion
+	apiVersionInt int16
 }
 
 // KafkaAPIKeyMap is the map of all allowed kafka API keys
 // with the key values.
 // Reference: https://kafka.apache.org/protocol#protocol_api_keys
-var KafkaAPIKeyMap = map[string]int{
+var KafkaAPIKeyMap = map[string]int16{
 	"produce":              0,  /* Produce */
 	"fetch":                1,  /* Fetch */
 	"offsets":              2,  /* Offsets */
@@ -458,3 +486,17 @@ const (
 // KafkaTopicValidChar is a one-time regex generation of all allowed characters
 // in kafka topic name.
 var KafkaTopicValidChar = regexp.MustCompile(`^[a-zA-Z0-9\\._\\-]+$`)
+
+// GetAPIKey returns the APIKey as integer
+func (kr *PortRuleKafka) GetAPIKey() int16 {
+	n, ok := KafkaAPIKeyMap[strings.ToLower(kr.APIKey)]
+	if !ok {
+		return -1
+	}
+	return n
+}
+
+// GetAPIVersion returns the APIVersion as integer
+func (kr *PortRuleKafka) GetAPIVersion() int16 {
+	return kr.apiVersionInt
+}

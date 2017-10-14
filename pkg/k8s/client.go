@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/cilium/cilium/api/v1/models"
+	"github.com/cilium/cilium/pkg/logfields"
 	"github.com/cilium/cilium/pkg/nodeaddress"
 
 	log "github.com/sirupsen/logrus"
@@ -397,8 +398,8 @@ func updateNodeAnnotation(c kubernetes.Interface, node *v1.Node, v4CIDR, v6CIDR 
 // routine to retry the node update indefinitely.
 func AnnotateNodeCIDR(c kubernetes.Interface, nodeName string, v4CIDR, v6CIDR *net.IPNet) error {
 	log.WithFields(log.Fields{
-		fieldNodeName: nodeName,
-		fieldSubsys:   subsysKubernetes,
+		fieldNodeName:    nodeName,
+		logfields.Subsys: subsysKubernetes,
 	}).Debugf("Updating node annotations with node CIDRs: IPv4=%s IPv6=%s", v4CIDR, v6CIDR)
 
 	go func(c kubernetes.Interface, nodeName string, v4CIDR, v6CIDR *net.IPNet) {
@@ -417,10 +418,10 @@ func AnnotateNodeCIDR(c kubernetes.Interface, nodeName string, v4CIDR, v6CIDR *n
 
 			if err != nil {
 				log.WithFields(log.Fields{
-					fieldRetry:    n,
-					fieldMaxRetry: maxUpdateRetries,
-					fieldNodeName: nodeName,
-					fieldSubsys:   subsysKubernetes,
+					fieldRetry:       n,
+					fieldMaxRetry:    maxUpdateRetries,
+					fieldNodeName:    nodeName,
+					logfields.Subsys: subsysKubernetes,
 				}).WithError(err).Error("Unable to update node resource with CIDR annotation")
 			} else {
 				break

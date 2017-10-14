@@ -108,23 +108,27 @@ func (e *EgressRule) sanitize() error {
 	return nil
 }
 
-// sanitize validates Kafka rules
+// Sanitize sanitizes Kafka rules
 // TODO we need to add support to check
 // wildcard and prefix/suffix later on.
-func (kr *PortRuleKafka) sanitize() error {
+func (kr *PortRuleKafka) Sanitize() error {
 	if len(kr.APIKey) > 0 {
-		if _, ok := KafkaAPIKeyMap[strings.ToLower(kr.APIKey)]; ok == false {
+		n, ok := KafkaAPIKeyMap[strings.ToLower(kr.APIKey)]
+		if !ok {
 			return fmt.Errorf("invalid Kafka APIKey :%q", kr.APIKey)
 		}
+		kr.apiKeyInt = n
+	} else {
+		kr.apiKeyInt = -1
 	}
 
 	if len(kr.APIVersion) > 0 {
-		_, err := strconv.ParseUint(kr.APIVersion, 10, 16)
-
+		n, err := strconv.ParseInt(kr.APIVersion, 10, 16)
 		if err != nil {
 			return fmt.Errorf("invalid Kafka APIVersion :%q",
 				kr.APIVersion)
 		}
+		kr.apiVersionInt = int16(n)
 	}
 
 	if len(kr.Topic) > 0 {
@@ -148,7 +152,7 @@ func (pr *L7Rules) sanitize() error {
 
 	if pr.Kafka != nil {
 		for _, kafkaRules := range pr.Kafka {
-			if err := kafkaRules.sanitize(); err != nil {
+			if err := kafkaRules.Sanitize(); err != nil {
 				return err
 			}
 		}

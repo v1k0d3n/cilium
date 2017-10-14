@@ -63,6 +63,24 @@ type L4Filter struct {
 	Ingress bool
 }
 
+// GetRelevantRules returns the relevant rules based on the source and
+// destination addressing/identity information.
+func (dm L7DataMap) GetRelevantRules(ingress bool, identity uint64) api.L7Rules {
+	// If at ingress, check for endpoint specific rules first
+	if ingress {
+		if rules, ok := dm[identity]; ok {
+			return rules
+		}
+	}
+
+	// Fall back to wildcard selector
+	if rules, ok := dm[WildcardEndpointSelector]; ok {
+		return rules
+	}
+
+	return api.L7Rules{}
+}
+
 func (dm L7DataMap) addRulesForEndpoints(rules api.L7Rules,
 	fromEndpoints []api.EndpointSelector) error {
 

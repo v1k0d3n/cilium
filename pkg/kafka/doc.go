@@ -12,22 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package logfields defines common logging fields which are used across packages
-package logfields
-
-const (
-	// EndpointID is the numeric endpoint identifier
-	EndpointID = "endpointID"
-
-	// ContainerID is the container identifier
-	ContainerID = "containerID"
-
-	// IdentityLabels are the labels relevant for the security identity
-	IdentityLabels = "identityLabels"
-
-	// Identity is the identifier of a security identity
-	Identity = "identity"
-
-	// Subsys is set to the subsystem where the log message is being emitted
-	Subsys = "subsys"
-)
+// Package kafka provides a library to parse Kafka requests and responses and
+// apply policy rules
+package kafka
