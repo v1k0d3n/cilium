@@ -62,6 +62,8 @@ const (
 	ServiceType      = "serviceType"
 	ServiceID        = "serviceID"
 	ServicePortID    = "servicePortID"
+	Service          = "service"
+	LBBackend        = "lbBackend"
 
 	CiliumNetworkPolicyName = "ciliumNetworkPolicyName"
 	CiliumNetworkPolicy     = "ciliumNetworkPolicy"
@@ -69,4 +71,7 @@ const (
 	CiliumNode     = "ciliumNode"
 	CiliumID       = "ciliumNodeID"
 	CiliumRuleName = "ciliumRuleName"
+
+	BPFServiceKey = "bpfServiceKey"
+	BPFService    = "bpfService"
 )
