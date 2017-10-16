@@ -118,7 +118,7 @@ func (s *K8sSuite) TestParseNetworkPolicy(c *C) {
 	c.Assert(result, DeepEquals, &policy.L4Policy{
 		Ingress: policy.L4PolicyMap{
 			"80/TCP": policy.L4Filter{
-				Port: 80, Protocol: api.ProtoTCP,
+				Port: 80, Protocol: api.ProtoTCP, U8Proto: 6,
 				FromEndpoints:  []api.EndpointSelector{epSelector},
 				L7Parser:       "",
 				L7RedirectPort: 0, L7RulesPerEp: policy.L7DataMap{},

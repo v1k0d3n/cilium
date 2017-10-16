@@ -23,6 +23,8 @@ import (
 	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/policy/api"
+	"github.com/cilium/cilium/pkg/u8proto"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -93,6 +95,8 @@ type L4Filter struct {
 	Port int
 	// Protocol is the L4 protocol to allow or NONE
 	Protocol api.L4Proto
+	// U8Proto is the Protocol in numeric format, or 0 for NONE
+	U8Proto u8proto.U8proto
 	// FromEndpoints limit the source labels for allowing traffic. If
 	// FromEndpoints is empty, then it selects all endpoints.
 	FromEndpoints []api.EndpointSelector `json:"-"`
@@ -110,6 +114,7 @@ type L4Filter struct {
 func (l4 L4Filter) PolicyEqual(l4b L4Filter) bool {
 	if l4.Port != l4b.Port ||
 		l4.Protocol != l4b.Protocol ||
+		l4.U8Proto != l4b.U8Proto ||
 		len(l4.FromEndpoints) != len(l4b.FromEndpoints) ||
 		l4.L7Parser != l4b.L7Parser ||
 		l4.L7RedirectPort != l4b.L7RedirectPort ||
@@ -162,10 +167,13 @@ func CreateL4Filter(fromEndpoints []api.EndpointSelector, rule api.PortRule, por
 
 	// already validated via PortRule.Validate()
 	p, _ := strconv.ParseUint(port.Port, 0, 16)
+	// already validated via L4Proto.Validate()
+	u8p, _ := u8proto.ParseProtocol(string(protocol))
 
 	l4 := L4Filter{
 		Port:           int(p),
 		Protocol:       protocol,
+		U8Proto:        u8p,
 		L7RedirectPort: rule.RedirectPort,
 		L7RulesPerEp:   make(map[uint64]api.L7Rules),
 		FromEndpoints:  fromEndpoints,

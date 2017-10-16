@@ -25,7 +25,6 @@ import (
 	"github.com/cilium/cilium/pkg/logfields"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/policy/api"
-	"github.com/cilium/cilium/pkg/u8proto"
 
 	"github.com/cilium/cilium/common"
 	log "github.com/sirupsen/logrus"
@@ -121,17 +120,13 @@ func getSecurityIdentities(labelsMap labelArrays, selector *api.EndpointSelector
 
 func (e *Endpoint) removeOldFilter(labelsMap labelArrays, filter *policy.L4Filter) int {
 	port := uint16(filter.Port)
-	proto, err := u8proto.ParseProtocol(string(filter.Protocol))
-	if err != nil {
-		log.Warningf("Parse policy protocol failed: %s", err)
-		return 1
-	}
+	proto := uint8(filter.U8Proto)
 
 	errors := 0
 	for _, sel := range filter.FromEndpoints {
 		for _, id := range getSecurityIdentities(labelsMap, &sel) {
 			srcID := id.Uint32()
-			if err = e.PolicyMap.DeleteL4(srcID, port, uint8(proto)); err != nil {
+			if err := e.PolicyMap.DeleteL4(srcID, port, proto); err != nil {
 				log.Debugf("Delete old l4 policy failed: %s", err)
 				errors++
 			}
@@ -143,21 +138,17 @@ func (e *Endpoint) removeOldFilter(labelsMap labelArrays, filter *policy.L4Filte
 
 func (e *Endpoint) applyNewFilter(labelsMap labelArrays, filter *policy.L4Filter) int {
 	port := uint16(filter.Port)
-	proto, err := u8proto.ParseProtocol(string(filter.Protocol))
-	if err != nil {
-		log.Warningf("Parse policy protocol failed: %s", err)
-		return 1
-	}
+	proto := uint8(filter.U8Proto)
 
 	errors := 0
 	for _, sel := range filter.FromEndpoints {
 		for _, id := range getSecurityIdentities(labelsMap, &sel) {
 			srcID := id.Uint32()
-			if e.PolicyMap.L4Exists(srcID, port, uint8(proto)) {
+			if e.PolicyMap.L4Exists(srcID, port, proto) {
 				log.Debugf("L4 filter exists: %+v", filter)
 				continue
 			}
-			if err = e.PolicyMap.AllowL4(srcID, port, uint8(proto)); err != nil {
+			if err := e.PolicyMap.AllowL4(srcID, port, proto); err != nil {
 				log.Warningf("Update of l4 policy map failed: %s", err)
 				errors++
 			}
