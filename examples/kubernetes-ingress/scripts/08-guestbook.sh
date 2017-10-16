@@ -6,6 +6,8 @@ source "${dir}/helpers.bash"
 
 set -e
 
+kubectl create -f "${dir}/../network-policy/" || true
+
 kubectl create -f "${dir}/../deployments/guestbook/"
 
 kubectl get pods -o wide
@@ -21,4 +23,3 @@ while [[ "$(kubectl get pods --output=jsonpath='{range .items[*]}{.metadata.name
     sleep 2s
 done
 
-kubectl create -f "${dir}/../deployments/guestbook/ingress/"

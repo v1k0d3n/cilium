@@ -8,6 +8,6 @@ kubectl delete -f "${dir}/../deployments/guestbook/"
 
 kubectl delete -f "${dir}/../deployments/guestbook/ingress"
 
-kubectl delete -f "${dir}/../deployments/kubedns-rc.yaml" -f "${dir}/../deployments/kubedns-svc.yaml"
+kubectl delete -f "${dir}/../deployments/"
 
 kubectl delete -f "${dir}/../network-policy/"

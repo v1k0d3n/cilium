@@ -6,8 +6,6 @@ source "${dir}/helpers.bash"
 
 set -e
 
-kubectl create -f "${dir}/../network-policy/" || true
-
 kubectl get networkpolicy
 
 cilium policy get
