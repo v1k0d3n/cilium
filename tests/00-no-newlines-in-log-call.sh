@@ -13,6 +13,7 @@ set -ex
 
 if grep --include \*.go -r 'log\.' ../ | grep -v vendor \
   | grep -v contrib \
+  | grep -v /envoy/envoy \
   | grep -v logging.go \
   | grep -F "\n"; then
   abort "found newline(s) in log call(s), please remove ending \n"
