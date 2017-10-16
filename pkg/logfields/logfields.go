@@ -35,15 +35,38 @@ const (
 	L4PolicyID = "l4PolicyID"
 
 	// REVIEW Should this match pkg/proxy/accesslog.FieldFilePath ?
-	Path                  = "path"
+	Path = "path"
+
+	K8sNode               = "ciliumNode"
+	K8sNodeID             = "ciliumNodeID"
+	K8sSvcName            = "k8sSvcName"
 	K8sPodName            = "k8sPodName"
+	K8sSvcType            = "k8sSvcType"
 	K8sNamespace          = "k8sNamespace"
 	K8sIdentityAnnotation = "k8sIdentityAnnotation"
+	K8sNetworkPolicyName  = "k8sNetworkPolicyName"
+	K8sNetworkPolicy      = "k8sNetworkPolicy"
+	K8sIngress            = "k8sIngress"
+	K8sIngressName        = "k8sIngressName"
+	K8sLabels             = "k8sLabels"
 	IPTableRule           = "ipTableRule"
 	IPAddr                = "ipAddr"
+	Port                  = "port"
+	Protocol              = "protocol"
 	V4Prefix              = "v4Prefix"
 	V6Prefix              = "v6Prefix"
 
-	ServiceName = "serviceName"
-	ServiceSHA  = "serviceSHA"
+	ServiceName      = "serviceName"
+	ServiceSHA       = "serviceSHA"
+	ServiceNamespace = "serviceNamespace"
+	ServiceType      = "serviceType"
+	ServiceID        = "serviceID"
+	ServicePortID    = "servicePortID"
+
+	CiliumNetworkPolicyName = "ciliumNetworkPolicyName"
+	CiliumNetworkPolicy     = "ciliumNetworkPolicy"
+
+	CiliumNode     = "ciliumNode"
+	CiliumID       = "ciliumNodeID"
+	CiliumRuleName = "ciliumRuleName"
 )

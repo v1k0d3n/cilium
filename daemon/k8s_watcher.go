@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/lock"
+	"github.com/cilium/cilium/pkg/logfields"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/nodeaddress"
 
@@ -85,17 +86,17 @@ func k8sErrorHandler(e error) {
 		} else {
 			if strings.Contains(errstr, "Failed to list *v1.NetworkPolicy: the server could not find the requested resource") {
 				k8sErrMsgMU.Unlock()
-				log.Warningf("Consider upgrading kubernetes to >=1.7 to enforce NetworkPolicy version 1")
+				log.Warning("Consider upgrading kubernetes to >=1.7 to enforce NetworkPolicy version 1")
 				stopPolicyController <- struct{}{}
 			} else if strings.Contains(errstr, "Failed to list *k8s.CiliumNetworkPolicy: the server could not find the requested resource") {
 				k8sErrMsg[errstr] = time.NewTimer(k8sErrLogTimeout)
 				k8sErrMsgMU.Unlock()
-				log.Warningf("Detected conflicting TPR and CRD, please migrate all ThirdPartyResource to CustomResourceDefinition! More info: https://cilium.link/migrate-tpr")
-				log.Warningf("Due to conflicting TPR and CRD rules, CiliumNetworkPolicy enforcement can't be guaranteed!")
+				log.Warning("Detected conflicting TPR and CRD, please migrate all ThirdPartyResource to CustomResourceDefinition! More info: https://cilium.link/migrate-tpr")
+				log.Warning("Due to conflicting TPR and CRD rules, CiliumNetworkPolicy enforcement can't be guaranteed!")
 			} else if strings.Contains(errstr, "Unable to decode an event from the watch stream: unable to decode watch event") || strings.Contains(errstr, "Failed to list *k8s.CiliumNetworkPolicy: only encoded map or array can be decoded into a struct") {
 				k8sErrMsg[errstr] = time.NewTimer(k8sErrLogTimeout)
 				k8sErrMsgMU.Unlock()
-				log.Warningf("Unable to decode an event from watch, restarting cilium policy rules controller")
+				log.Warning("Unable to decode an event from watch, restarting cilium policy rules controller")
 				restartCiliumRulesController <- struct{}{}
 			}
 		}
@@ -103,14 +104,14 @@ func k8sErrorHandler(e error) {
 		k8sErrMsgMU.Unlock()
 		select {
 		case <-t.C:
-			log.Error(e)
+			log.WithError(e).Error("k8sError")
 			t.Reset(k8sErrLogTimeout)
 		default:
 		}
 		return
 	}
 	// Still log other error messages
-	log.Error(e)
+	log.WithError(e).Error("k8sError")
 }
 
 // EnableK8sWatcher watches for policy, services and endpoint changes on the Kubernetes
@@ -134,7 +135,7 @@ func (d *Daemon) EnableK8sWatcher(reSyncPeriod time.Duration) error {
 	if err := k8s.CreateCustomResourceDefinitions(apiextensionsclientset); errors.IsNotFound(err) {
 		// If CRD was not found it means we are running in k8s <1.7
 		// then we should set up TPR instead
-		log.Debugf("Detected k8s <1.7, using TPR instead of CRD")
+		log.Debug("Detected k8s <1.7, using TPR instead of CRD")
 		if err := k8s.CreateThirdPartyResourcesDefinitions(k8s.Client()); err != nil {
 			return fmt.Errorf("Unable to create third party resource: %s", err)
 		}
@@ -269,42 +270,59 @@ func (d *Daemon) EnableK8sWatcher(reSyncPeriod time.Duration) error {
 func (d *Daemon) addK8sNetworkPolicy(obj interface{}) {
 	k8sNP, ok := obj.(*networkingv1.NetworkPolicy)
 	if !ok {
-		log.Errorf("Ignoring invalid k8s NetworkPolicy addition")
+		log.Error("Ignoring invalid k8s NetworkPolicy addition")
 		return
 	}
 	rules, err := k8s.ParseNetworkPolicy(k8sNP)
 	if err != nil {
-		log.Errorf("Error while parsing kubernetes network policy %+v: %s", obj, err)
+		log.WithError(err).WithFields(log.Fields{
+			"obj": obj,
+		}).Error("Error while parsing kubernetes network policy")
 		return
 	}
+
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sNetworkPolicy:     k8sNP,
+		logfields.K8sNetworkPolicyName: k8sNP.Name,
+	})
 
 	opts := AddOptions{Replace: true}
 	if _, err := d.PolicyAdd(rules, &opts); err != nil {
-		log.Errorf("Error while adding kubernetes network policy %+v: %s", rules, err)
+		funcLog.WithError(err).Error("Error while adding kubernetes network policy")
 		return
 	}
 
-	log.Infof("Kubernetes network policy '%s' successfully add", k8sNP.Name)
+	funcLog.Info("Kubernetes network policy successfully added")
 }
 
 func (d *Daemon) updateK8sNetworkPolicy(oldObj interface{}, newObj interface{}) {
-	log.Debugf("Modified policy %+v->%+v", oldObj, newObj)
+	log.WithFields(log.Fields{
+		"old": oldObj,
+		"new": newObj,
+	}).Debug("Modified policy")
+
 	d.addK8sNetworkPolicy(newObj)
 }
 
 func (d *Daemon) deleteK8sNetworkPolicy(obj interface{}) {
 	k8sNP, ok := obj.(*networkingv1.NetworkPolicy)
 	if !ok {
-		log.Errorf("Ignoring invalid k8s NetworkPolicy deletion")
+		log.Error("Ignoring invalid k8s NetworkPolicy deletion")
 		return
 	}
 
 	labels := labels.ParseSelectLabelArray(k8s.ExtractPolicyName(k8sNP))
 
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sNetworkPolicyName: k8sNP.Name,
+		// REVIEW is this just IdentityLabels?
+		logfields.K8sLabels: labels,
+	})
+
 	if _, err := d.PolicyDelete(labels); err != nil {
-		log.Errorf("Error while deleting kubernetes network policy %+v: %s", labels, err)
+		funcLog.WithError(err).Error("Error while deleting kubernetes network policy")
 	} else {
-		log.Infof("Kubernetes network policy '%s' successfully removed", k8sNP.Name)
+		funcLog.Info("Kubernetes network policy successfully removed")
 	}
 }
 
@@ -312,27 +330,38 @@ func (d *Daemon) deleteK8sNetworkPolicy(obj interface{}) {
 func (d *Daemon) addK8sNetworkPolicyDeprecated(obj interface{}) {
 	k8sNP, ok := obj.(*v1beta1.NetworkPolicy)
 	if !ok {
-		log.Errorf("Ignoring invalid k8s v1beta1 NetworkPolicy addition")
+		log.Error("Ignoring invalid k8s v1beta1 NetworkPolicy addition")
 		return
 	}
 	rules, err := k8s.ParseNetworkPolicyDeprecated(k8sNP)
 	if err != nil {
-		log.Errorf("Error while parsing kubernetes v1beta1 network policy %+v: %s", obj, err)
+		log.WithError(err).WithFields(log.Fields{
+			"obj": obj,
+		}).Error("Error while parsing kubernetes v1beta1 network policy")
 		return
 	}
+
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sNetworkPolicyName: k8sNP.Name,
+		"rules": rules,
+	})
 
 	opts := AddOptions{Replace: true}
 	if _, err := d.PolicyAdd(rules, &opts); err != nil {
-		log.Errorf("Error while adding kubernetes v1beta1 network policy %+v: %s", rules, err)
+		funcLog.Error("Error while parsing kubernetes v1beta1 network policy")
 		return
 	}
 
-	log.Infof("Kubernetes v1beta1 network policy '%s' successfully added", k8sNP.Name)
+	funcLog.Info("Kubernetes v1beta1 network policy successfully added")
 }
 
 // updateK8sNetworkPolicyDeprecated FIXME remove in k8s 1.8
 func (d *Daemon) updateK8sNetworkPolicyDeprecated(oldObj interface{}, newObj interface{}) {
-	log.Debugf("Modified v1beta1 policy %+v->%+v", oldObj, newObj)
+	log.WithFields(log.Fields{
+		"old": oldObj,
+		"new": newObj,
+	}).Debug("Modified v1beta1 policy")
+
 	d.addK8sNetworkPolicyDeprecated(newObj)
 }
 
@@ -340,17 +369,23 @@ func (d *Daemon) updateK8sNetworkPolicyDeprecated(oldObj interface{}, newObj int
 func (d *Daemon) deleteK8sNetworkPolicyDeprecated(obj interface{}) {
 	k8sNP, ok := obj.(*v1beta1.NetworkPolicy)
 	if !ok {
-		log.Errorf("Ignoring invalid k8s v1beta1.NetworkPolicy deletion")
+		log.Error("Ignoring invalid k8s v1beta1.NetworkPolicy deletion")
 		return
 	}
 
 	labels := labels.ParseSelectLabelArray(k8s.ExtractPolicyNameDeprecated(k8sNP))
 
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sNetworkPolicyName: k8sNP.Name,
+		"labels":                       labels,
+	})
+
 	if _, err := d.PolicyDelete(labels); err != nil {
-		log.Errorf("Error while deleting v1beta1 kubernetes network policy %+v: %s", labels, err)
-	} else {
-		log.Infof("Kubernetes v1beta1 network policy '%s' successfully removed", k8sNP.Name)
+		funcLog.WithError(err).Error("Error while deleting v1beta1 kubernetes network policy")
+		return
 	}
+
+	funcLog.Info("Kubernetes v1beta1 network policy successfully removed")
 }
 
 func (d *Daemon) serviceAddFn(obj interface{}) {
@@ -358,6 +393,12 @@ func (d *Daemon) serviceAddFn(obj interface{}) {
 	if !ok {
 		return
 	}
+
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   svc.Name,
+		logfields.K8sNamespace: svc.Namespace,
+		logfields.K8sSvcType:   svc.Spec.Type,
+	})
 
 	switch svc.Spec.Type {
 	case v1.ServiceTypeClusterIP, v1.ServiceTypeNodePort, v1.ServiceTypeLoadBalancer:
@@ -368,14 +409,17 @@ func (d *Daemon) serviceAddFn(obj interface{}) {
 		return
 
 	default:
-		log.Warningf("Ignoring k8s service %s/%s, reason unsupported type %s",
-			svc.Namespace, svc.Name, svc.Spec.Type)
+		// REVIEW Should reason be a field?
+		funcLog.WithFields(log.Fields{
+			"reason": "unsupported type",
+		}).Warning("Ignoring k8s service")
 		return
 	}
 
 	if strings.ToLower(svc.Spec.ClusterIP) == "none" || svc.Spec.ClusterIP == "" {
-		log.Infof("Ignoring k8s service %s/%s, reason: headless",
-			svc.Namespace, svc.Name, svc.Spec.Type)
+		funcLog.WithFields(log.Fields{
+			"reason": "headless",
+		}).Info("Ignoring k8s service")
 		return
 	}
 
@@ -393,7 +437,9 @@ func (d *Daemon) serviceAddFn(obj interface{}) {
 	for _, port := range svc.Spec.Ports {
 		p, err := types.NewFEPort(types.L4Type(port.Protocol), uint16(port.Port))
 		if err != nil {
-			log.Errorf("Unable to add service port %v: %s", port, err)
+			funcLog.WithError(err).WithFields(log.Fields{
+				"port": port,
+			}).Error("Unable to add service port")
 			continue
 		}
 		if _, ok := newSI.Ports[types.FEPortName(port.Name)]; !ok {
@@ -414,7 +460,9 @@ func (d *Daemon) serviceModFn(_ interface{}, newObj interface{}) {
 	if !ok {
 		return
 	}
-	log.Debugf("Service %+v", newSvc)
+	log.WithFields(log.Fields{
+		"svc": newSvc,
+	}).Debug("Service ModFn")
 
 	d.serviceAddFn(newObj)
 }
@@ -424,7 +472,10 @@ func (d *Daemon) serviceDelFn(obj interface{}) {
 	if !ok {
 		return
 	}
-	log.Debugf("Service %+v", svc)
+	log.WithFields(log.Fields{
+		logfields.K8sSvcName:   svc.Name,
+		logfields.K8sNamespace: svc.Namespace,
+	}).Debug("Service delFn")
 
 	svcns := &types.K8sServiceNamespace{
 		Service:   svc.Name,
@@ -442,6 +493,12 @@ func (d *Daemon) endpointAddFn(obj interface{}) {
 		return
 	}
 
+	// REVIEW Should this have been logged as a single k8sServiceNamespacei field?
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   ep.Name,
+		logfields.K8sNamespace: ep.Namespace,
+	})
+
 	svcns := types.K8sServiceNamespace{
 		Service:   ep.Name,
 		Namespace: ep.Namespace,
@@ -456,7 +513,7 @@ func (d *Daemon) endpointAddFn(obj interface{}) {
 		for _, port := range sub.Ports {
 			lbPort, err := types.NewL4Addr(types.L4Type(port.Protocol), uint16(port.Port))
 			if err != nil {
-				log.Errorf("Error while creating a new LB Port: %s", err)
+				funcLog.WithError(err).Error("Error while creating a new LB Port")
 				continue
 			}
 			newSvcEP.Ports[types.FEPortName(port.Name)] = lbPort
@@ -472,7 +529,7 @@ func (d *Daemon) endpointAddFn(obj interface{}) {
 
 	if d.conf.IsLBEnabled() {
 		if err := d.syncExternalLB(&svcns, nil, nil); err != nil {
-			log.Errorf("Unable to add endpoints on ingress service %s: %s", svcns, err)
+			funcLog.WithError(err).Error("Unable to add endpoints on ingress service")
 			return
 		}
 	}
@@ -493,6 +550,12 @@ func (d *Daemon) endpointDelFn(obj interface{}) {
 		return
 	}
 
+	// REVIEW Should this have been logged as a k8sServiceNamespace?
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   ep.Name,
+		logfields.K8sNamespace: ep.Namespace,
+	})
+
 	svcns := &types.K8sServiceNamespace{
 		Service:   ep.Name,
 		Namespace: ep.Namespace,
@@ -504,7 +567,7 @@ func (d *Daemon) endpointDelFn(obj interface{}) {
 	d.syncLB(nil, nil, svcns)
 	if d.conf.IsLBEnabled() {
 		if err := d.syncExternalLB(nil, nil, svcns); err != nil {
-			log.Errorf("Unable to remove endpoints on ingress service %s: %s", svcns, err)
+			funcLog.WithError(err).Error("Unable to remove endpoints on ingress service")
 			return
 		}
 	}
@@ -551,6 +614,12 @@ func (d *Daemon) delK8sSVCs(svc types.K8sServiceNamespace, svcInfo *types.K8sSer
 		return err
 	}
 
+	// REVIEW Should this have been logged as a k8sServiceNamespace?
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   svc.Service,
+		logfields.K8sNamespace: svc.Namespace,
+	})
+
 	repPorts := getUniqPorts(svcInfo.Ports)
 
 	for _, svcPort := range svcInfo.Ports {
@@ -561,32 +630,42 @@ func (d *Daemon) delK8sSVCs(svc types.K8sServiceNamespace, svcInfo *types.K8sSer
 
 		if svcPort.ID != 0 {
 			if err := DeleteL3n4AddrIDByUUID(uint32(svcPort.ID)); err != nil {
-				log.Warningf("Error while cleaning service ID: %s", err)
+				funcLog.WithError(err).Warning("Error while cleaning service ID")
 			}
 		}
 
 		fe, err := types.NewL3n4Addr(svcPort.Protocol, svcInfo.FEIP, svcPort.Port)
 		if err != nil {
-			log.Errorf("Error while creating a New L3n4AddrID: %s. Ignoring service %v...", err, svcInfo)
+			funcLog.WithError(err).Error("Error while creating a New L3n4AddrID. Ignoring service")
 			continue
 		}
 
 		if err := d.svcDeleteByFrontend(fe); err != nil {
-			log.Warningf("Error deleting service %+v, %s", fe, err)
+			funcLog.WithError(err).WithFields(log.Fields{
+				"frontend": fe,
+			}).Warning("Error deleting service")
+
 		} else {
-			log.Debugf("# cilium lb delete-service %s %d 0", svcInfo.FEIP, svcPort.Port)
+			funcLog.Debugf("# cilium lb delete-service %s %d 0", svcInfo.FEIP, svcPort.Port)
 		}
 
 		if err := d.RevNATDelete(svcPort.ID); err != nil {
-			log.Warningf("Error deleting reverse NAT %+v, %s", svcPort.ID, err)
+			funcLog.WithError(err).WithFields(log.Fields{
+				logfields.ServicePortID: svcPort.ID,
+			}).Warning("Error deleting reverse NAT")
 		} else {
-			log.Debugf("# cilium lb delete-rev-nat %d", svcPort.ID)
+			funcLog.Debugf("# cilium lb delete-rev-nat %s", svcPort.ID)
 		}
 	}
 	return nil
 }
 
 func (d *Daemon) addK8sSVCs(svc types.K8sServiceNamespace, svcInfo *types.K8sServiceInfo, se *types.K8sServiceEndpoint) error {
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   svc.Service,
+		logfields.K8sNamespace: svc.Namespace,
+	})
+
 	isSvcIPv4 := svcInfo.FEIP.To4() != nil
 	if err := areIPsConsistent(!d.conf.IPv4Disabled, isSvcIPv4, svc, se); err != nil {
 		return err
@@ -605,15 +684,28 @@ func (d *Daemon) addK8sSVCs(svc types.K8sServiceNamespace, svcInfo *types.K8sSer
 		if fePort.ID == 0 {
 			feAddr, err := types.NewL3n4Addr(fePort.Protocol, svcInfo.FEIP, fePort.Port)
 			if err != nil {
-				log.Errorf("Error while creating a new L3n4Addr: %s. Ignoring service...", err)
+				funcLog.WithError(err).WithFields(log.Fields{
+					logfields.ServicePortID: fePortName,
+					logfields.IPAddr:        svcInfo.FEIP,
+					logfields.Port:          fePort.Port,
+					logfields.Protocol:      fePort.Protocol,
+				}).Error("Error while creating a new L3n4Addr. Ignoring service...")
 				continue
 			}
 			feAddrID, err := PutL3n4Addr(*feAddr, 0)
 			if err != nil {
-				log.Errorf("Error while getting a new service ID: %s. Ignoring service %v...", err, feAddr)
+				funcLog.WithError(err).WithFields(log.Fields{
+					logfields.ServicePortID: fePortName,
+					logfields.IPAddr:        svcInfo.FEIP,
+					logfields.Port:          fePort.Port,
+					logfields.Protocol:      fePort.Protocol,
+				}).Error("Error while getting a new service ID. Ignoring service...")
 				continue
 			}
-			log.Debugf("Got feAddr ID %d for service %+v", feAddrID.ID, svc)
+			funcLog.WithFields(log.Fields{
+				logfields.ServicePortID: fePortName,
+				logfields.ServiceID:     feAddrID.ID,
+			}).Debug("Got feAddr ID for service")
 			fePort.ID = feAddrID.ID
 		}
 
@@ -631,17 +723,26 @@ func (d *Daemon) addK8sSVCs(svc types.K8sServiceNamespace, svcInfo *types.K8sSer
 
 		fe, err := types.NewL3n4AddrID(fePort.Protocol, svcInfo.FEIP, fePort.Port, fePort.ID)
 		if err != nil {
-			log.Errorf("Error while creating a New L3n4AddrID: %s. Ignoring service %v...", err, svcInfo)
+			// REVIEW Should we just report svcInfo as is? what if we add a field to it?
+			funcLog.WithError(err).WithFields(log.Fields{
+				logfields.IPAddr: svcInfo.FEIP,
+				logfields.Port:   svcInfo.Ports,
+			}).Error("Error while creating a New L3n4AddrID. Ignoring service...")
 			continue
 		}
 		if _, err := d.svcAdd(*fe, besValues, true); err != nil {
-			log.Errorf("Error while inserting service in LB map: %s", err)
+			funcLog.WithError(err).Error("Error while inserting service in LB map")
 		}
 	}
 	return nil
 }
 
 func (d *Daemon) syncLB(newSN, modSN, delSN *types.K8sServiceNamespace) {
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   delSN.Service,
+		logfields.K8sNamespace: delSN.Namespace,
+	})
+
 	deleteSN := func(delSN types.K8sServiceNamespace) {
 		svc, ok := d.loadBalancer.K8sServices[delSN]
 		if !ok {
@@ -656,7 +757,7 @@ func (d *Daemon) syncLB(newSN, modSN, delSN *types.K8sServiceNamespace) {
 		}
 
 		if err := d.delK8sSVCs(delSN, svc, endpoint); err != nil {
-			log.Errorf("Unable to delete k8s service: %s", err)
+			funcLog.WithError(err).Error("Unable to delete k8s service")
 			return
 		}
 
@@ -676,7 +777,7 @@ func (d *Daemon) syncLB(newSN, modSN, delSN *types.K8sServiceNamespace) {
 		}
 
 		if err := d.addK8sSVCs(addSN, svcInfo, endpoint); err != nil {
-			log.Errorf("Unable to add K8s service: %s", err)
+			funcLog.WithError(err).Error("Unable to add k8s service")
 		}
 	}
 
@@ -708,6 +809,11 @@ func (d *Daemon) ingressAddFn(obj interface{}) {
 		// We only support Single Service Ingress for now
 		return
 	}
+
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sSvcName:   ingress.Spec.Backend.ServiceName,
+		logfields.K8sNamespace: ingress.Namespace,
+	})
 
 	svcName := types.K8sServiceNamespace{
 		Service:   ingress.Spec.Backend.ServiceName,
@@ -742,7 +848,7 @@ func (d *Daemon) ingressAddFn(obj interface{}) {
 	err = syncIngress(ingressSvcInfo)
 	d.loadBalancer.K8sMU.Unlock()
 	if err != nil {
-		log.Errorf("%s", err)
+		funcLog.WithError(err).Error("Error in syncIngress")
 		return
 	}
 
@@ -756,7 +862,9 @@ func (d *Daemon) ingressAddFn(obj interface{}) {
 
 	_, err = k8s.Client().Extensions().Ingresses(ingress.Namespace).UpdateStatus(ingress)
 	if err != nil {
-		log.Errorf("Unable to update status of ingress %s: %s", ingress.Name, err)
+		funcLog.WithError(err).WithFields(log.Fields{
+			logfields.K8sIngress: ingress,
+		}).Error("Unable to update status of ingress")
 		return
 	}
 }
@@ -770,6 +878,12 @@ func (d *Daemon) ingressModFn(oldObj interface{}, newObj interface{}) {
 	if !ok {
 		return
 	}
+
+	// REVIEW Is this really a k8sNetworkPolicy?
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sNetworkPolicyName: newIngress.Name,
+		logfields.K8sNamespace:         newIngress.Namespace,
+	})
 
 	if oldIngress.Spec.Backend == nil || newIngress.Spec.Backend == nil {
 		// We only support Single Service Ingress for now
@@ -787,18 +901,25 @@ func (d *Daemon) ingressModFn(oldObj interface{}, newObj interface{}) {
 			}
 			feAddr, err := types.NewL3n4Addr(types.TCP, ingressIP, uint16(port))
 			if err != nil {
-				log.Errorf("Error while creating a new L3n4Addr: %s. Ignoring ingress %s/%s...", err, newIngress.Namespace, newIngress.Name)
+				funcLog.WithError(err).Error("Error while creating a new L3n4Addr. Ignoring ingress...")
 				continue
 			}
 			feAddrID, err := PutL3n4Addr(*feAddr, 0)
 			if err != nil {
-				log.Errorf("Error while getting a new service ID: %s. Ignoring ingress %s/%s...", err, newIngress.Namespace, newIngress.Name)
+				funcLog.WithError(err).Error("Error while getting a new service ID. Ignoring ingress...")
 				continue
 			}
-			log.Debugf("Got service ID %d for ingress %s/%s", feAddrID.ID, newIngress.Namespace, newIngress.Name)
+			funcLog.WithFields(log.Fields{
+				logfields.ServiceID: feAddrID.ID,
+			}).Debug("Got service ID for ingress")
 
 			if err := d.RevNATAdd(feAddrID.ID, feAddrID.L3n4Addr); err != nil {
-				log.Errorf("Unable to add reverse NAT ID for ingress %s/%s: %s", newIngress.Namespace, newIngress.Name, err)
+				funcLog.WithError(err).WithFields(log.Fields{
+					logfields.ServiceID: feAddrID.ID,
+					logfields.IPAddr:    feAddrID.L3n4Addr.IP,
+					logfields.Port:      feAddrID.L3n4Addr.Port,
+					logfields.Protocol:  feAddrID.L3n4Addr.Protocol,
+				}).Error("Unable to add reverse NAT ID for ingress")
 			}
 		}
 		return
@@ -823,6 +944,12 @@ func (d *Daemon) ingressDelFn(obj interface{}) {
 		return
 	}
 
+	funcLog := log.WithFields(log.Fields{
+		logfields.K8sIngressName: ing.Name,
+		logfields.K8sSvcName:     ing.Spec.Backend.ServiceName,
+		logfields.K8sNamespace:   ing.Namespace,
+	})
+
 	svcName := types.K8sServiceNamespace{
 		Service:   ing.Spec.Backend.ServiceName,
 		Namespace: ing.Namespace,
@@ -838,7 +965,7 @@ func (d *Daemon) ingressDelFn(obj interface{}) {
 			}
 			feAddr, err := types.NewL3n4Addr(types.TCP, ingressIP, uint16(port))
 			if err != nil {
-				log.Errorf("Error while creating a new L3n4Addr: %s. Ignoring ingress %s/%s...", err, ing.Namespace, ing.Name)
+				funcLog.WithError(err).Error("Error while creating a new L3n4Addr. Ignoring ingress...")
 				continue
 			}
 			// This is the only way that we can get the service's ID
@@ -846,7 +973,10 @@ func (d *Daemon) ingressDelFn(obj interface{}) {
 			svc := d.svcGetBySHA256Sum(feAddr.SHA256Sum())
 			if svc != nil {
 				if err := d.RevNATDelete(svc.FE.ID); err != nil {
-					log.Errorf("Error while removing RevNAT for ID %d for ingress %s/%s: %s", svc.FE.ID, ing.Namespace, ing.Name, err)
+					funcLog.WithError(err).WithFields(log.Fields{
+						// REVIEW This is the ID of the FE, not the svc. Should we just have a "frontend id" fieldname?
+						logfields.ServiceID: svc.FE.ID,
+					}).Error("Error while removing RevNAT for ingress")
 				}
 			}
 		}
@@ -869,7 +999,7 @@ func (d *Daemon) ingressDelFn(obj interface{}) {
 
 	err := d.delK8sSVCs(svcName, ingressSvcInfo, k8sEP)
 	if err != nil {
-		log.Errorf("Unable to delete K8s ingress: %s", err)
+		funcLog.WithError(err).Error("Unable to delete K8s ingress")
 		return
 	}
 	delete(d.loadBalancer.K8sIngress, svcName)
@@ -931,11 +1061,15 @@ func (d *Daemon) syncExternalLB(newSN, modSN, delSN *types.K8sServiceNamespace) 
 func (d *Daemon) addCiliumNetworkPolicy(obj interface{}) {
 	rule, ok := obj.(*k8s.CiliumNetworkPolicy)
 	if !ok {
-		log.Warningf("Received unknown object %+v, expected a CiliumNetworkPolicy object", obj)
+		log.WithFields(log.Fields{
+			"obj": obj,
+		}).Warning("Received unknown object, expected a CiliumNetworkPolicy object")
 		return
 	}
 
-	log.Debugf("Adding CiliumNetworkPolicy %+v", rule)
+	log.WithFields(log.Fields{
+		logfields.CiliumNetworkPolicy: rule,
+	}).Debug("Adding CiliumNetworkPolicy")
 
 	rules, err := rule.Parse()
 	if err == nil {
@@ -951,13 +1085,17 @@ func (d *Daemon) addCiliumNetworkPolicy(obj interface{}) {
 			Error:       fmt.Sprintf("%s", err),
 			LastUpdated: time.Now(),
 		}
-		log.Warningf("Unable to add CiliumNetworkPolicy %s: err: '%s'. err != nil: '%t'. a nil object: '%s'", rule.Metadata.Name, err, err != nil, nil)
+		log.WithError(err).WithFields(log.Fields{
+			logfields.CiliumNetworkPolicyName: rule.Metadata.Name,
+		}).Warningf("Unable to add CiliumNetworkPolicy. err != nil: '%t'. a nil object: '%s'", err != nil, nil)
 	} else {
 		cnpns = k8s.CiliumNetworkPolicyNodeStatus{
 			OK:          true,
 			LastUpdated: time.Now(),
 		}
-		log.Infof("Imported CiliumNetworkPolicy %s", rule.Metadata.Name)
+		log.WithError(err).WithFields(log.Fields{
+			logfields.CiliumNetworkPolicyName: rule.Metadata.Name,
+		}).Info("Imported CiliumNetworkPolicy")
 	}
 
 	go k8s.UpdateCNPStatus(cnpClient, k8s.BackOffLoopTimeout, ciliumRulesStore, rule, cnpns)
@@ -966,11 +1104,19 @@ func (d *Daemon) addCiliumNetworkPolicy(obj interface{}) {
 func (d *Daemon) deleteCiliumNetworkPolicy(obj interface{}) {
 	rule, ok := obj.(*k8s.CiliumNetworkPolicy)
 	if !ok {
-		log.Warningf("Received unknown object %+v, expected a CiliumNetworkPolicy object", obj)
+		log.WithFields(log.Fields{
+			"obj": obj,
+		}).Warning("Received unknown object, expected a CiliumNetworkPolicy object")
 		return
 	}
 
-	log.Debugf("Deleting CiliumNetworkPolicy %+v", rule)
+	funcLog := log.WithFields(log.Fields{
+		logfields.CiliumNetworkPolicyName: rule.Metadata.Name,
+	})
+
+	funcLog.WithFields(log.Fields{
+		logfields.CiliumNetworkPolicy: rule,
+	}).Debug("Deleting CiliumNetworkPolicy")
 
 	rules, err := rule.Parse()
 	if err == nil {
@@ -980,21 +1126,25 @@ func (d *Daemon) deleteCiliumNetworkPolicy(obj interface{}) {
 	}
 
 	if err != nil {
-		log.Warningf("Unable to delete CiliumNetworkPolicy %s: %s", rule.Metadata.Name, err)
+		funcLog.WithError(err).Warning("Unable to delete CiliumNetworkPolicy")
 	} else {
-		log.Infof("Deleted CiliumNetworkPolicy %s", rule.Metadata.Name)
+		funcLog.WithError(err).Info("Deleted CiliumNetworkPolicy")
 	}
 }
 
 func (d *Daemon) updateCiliumNetworkPolicy(oldObj interface{}, newObj interface{}) {
 	oldRule, ok := oldObj.(*k8s.CiliumNetworkPolicy)
 	if !ok {
-		log.Warningf("Received unknown object %+v, expected a CiliumNetworkPolicy object", oldObj)
+		log.WithFields(log.Fields{
+			"obj": oldObj,
+		}).Warning("Received unknown object, expected a CiliumNetworkPolicy object")
 		return
 	}
 	newRules, ok := newObj.(*k8s.CiliumNetworkPolicy)
 	if !ok {
-		log.Warningf("Received unknown object %+v, expected a CiliumNetworkPolicy object", newObj)
+		log.WithFields(log.Fields{
+			"obj": newObj,
+		}).Warning("Received unknown object, expected a CiliumNetworkPolicy object")
 		return
 	}
 	// Since we are updating the status map from all nodes we need to prevent
@@ -1010,7 +1160,9 @@ func (d *Daemon) updateCiliumNetworkPolicy(oldObj interface{}, newObj interface{
 func (d *Daemon) nodesAddFn(obj interface{}) {
 	k8sNode, ok := obj.(*v1.Node)
 	if !ok {
-		log.Warningf("Invalid objected, expected v1.Node, got %+v", obj)
+		log.WithFields(log.Fields{
+			"obj": obj,
+		}).Warning("Invalid objected, expected v1.Node")
 		return
 	}
 	ni := node.Identity{Name: k8sNode.Name}
@@ -1031,13 +1183,18 @@ func (d *Daemon) nodesAddFn(obj interface{}) {
 
 	node.UpdateNode(ni, n, routeTypes, ownAddr)
 
-	log.Debugf("Added node %s: %+v", ni, n)
+	log.WithFields(log.Fields{
+		logfields.K8sNodeID: ni,
+		logfields.K8sNode:   n,
+	}).Debug("Added node")
 }
 
 func (d *Daemon) nodesModFn(oldObj interface{}, newObj interface{}) {
 	k8sNode, ok := newObj.(*v1.Node)
 	if !ok {
-		log.Warningf("Invalid objected, expected v1.Node, got %+v", newObj)
+		log.WithFields(log.Fields{
+			"obj": newObj,
+		}).Warning("Invalid objected, expected v1.Node")
 		return
 	}
 
@@ -1065,13 +1222,18 @@ func (d *Daemon) nodesModFn(oldObj interface{}, newObj interface{}) {
 
 	node.UpdateNode(ni, newNode, routeTypes, ownAddr)
 
-	log.Debugf("k8s: Updated node %s to %+v", ni, newNode)
+	log.WithFields(log.Fields{
+		logfields.K8sNodeID: ni,
+		logfields.K8sNode:   k8sNode,
+	}).Debug("k8s: Updated node")
 }
 
 func (d *Daemon) nodesDelFn(obj interface{}) {
 	k8sNode, ok := obj.(*v1.Node)
 	if !ok {
-		log.Warningf("Invalid objected, expected v1.Node, got %+v", obj)
+		log.WithFields(log.Fields{
+			"obj": obj,
+		}).Warning("Invalid objected, expected v1.Node")
 		return
 	}
 
@@ -1079,5 +1241,7 @@ func (d *Daemon) nodesDelFn(obj interface{}) {
 
 	node.DeleteNode(ni, node.TunnelRoute|node.DirectRoute)
 
-	log.Debugf("k8s: Removed node %s", ni)
+	log.WithFields(log.Fields{
+		logfields.K8sNodeID: ni,
+	}).Debug("k8s: Removed node")
 }
