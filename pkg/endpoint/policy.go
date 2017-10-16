@@ -537,7 +537,7 @@ func (e *Endpoint) SetRegenerateStateLocked() bool {
 	return true
 }
 
-// RegenerateStateLocked sets the endpoint's state to regenerating if not already disconnecting
+// SetRegenerateState sets the endpoint's state to regenerating if not already disconnecting
 func (e *Endpoint) SetRegenerateState() bool {
 	e.Mutex.Lock()
 	defer e.Mutex.Unlock()
@@ -620,6 +620,7 @@ func (e *Endpoint) TriggerPolicyUpdatesLocked(owner Owner) (bool, error) {
 	return changed, nil
 }
 
+// SetIdentity resets endpoints policy identity to 'id'.
 // Called with e.Mutex Locked
 func (e *Endpoint) SetIdentity(owner Owner, id *policy.Identity) {
 	repo := owner.GetPolicyRepository()

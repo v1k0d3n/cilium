@@ -56,6 +56,7 @@ func kafkaEqual(a, b api.PortRuleKafka) bool {
 // L7DataMap contains a map of L7 rules per endpoint where key is a hash of EndpointSelector
 type L7DataMap map[uint64]api.L7Rules
 
+// Equal returns true if the L7DataMaps have the same items. Order may matter, but false negatives do not matter.
 func (dm L7DataMap) Equal(dm2 L7DataMap) bool {
 	if len(dm) != len(dm2) {
 		return false

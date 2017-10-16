@@ -773,6 +773,7 @@ func (e *Endpoint) ApplyOptsLocked(opts map[string]string) bool {
 	return e.Opts.Apply(opts, OptionChanged, e) > 0
 }
 
+// ForcePolicyCompute marks the endpoint for forced bpf regeneration.
 func (e *Endpoint) ForcePolicyCompute() {
 	e.forcePolicyCompute = true
 }

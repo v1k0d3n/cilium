@@ -411,7 +411,7 @@ func (e *Endpoint) regenerateBPF(owner Owner, epdir string) error {
 	epFrontend := e.createEpFronted()
 	if epFrontend == nil {
 		e.Mutex.Unlock()
-		return fmt.Errorf("unable to cache endpoint information.")
+		return fmt.Errorf("unable to cache endpoint information")
 	}
 
 	// If dry mode is enabled, no changes to BPF maps are performed
