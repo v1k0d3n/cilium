@@ -1181,6 +1181,7 @@ func (h *patchConfig) Handle(params PatchConfigParams) middleware.Responder {
 
 	// Only recompile if configuration has changed.
 	if changes > 0 {
+		d.policy.BumpRevision() // force policy recalculation
 		log.Debugf("daemon configuration has changed; recompiling base programs")
 		if err := d.compileBase(); err != nil {
 			msg := fmt.Errorf("Unable to recompile base programs: %s", err)

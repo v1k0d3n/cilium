@@ -15,6 +15,7 @@
 package policy
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"reflect"
@@ -133,6 +134,23 @@ func (m L3PolicyMap) DeepCopy() L3PolicyMap {
 	return cpy
 }
 
+func ipnetEqual(a, b net.IPNet) bool {
+	return bytes.Equal(a.IP, b.IP) && bytes.Equal(a.Mask, b.Mask)
+}
+
+// PolicyEqual returns true if policy described by 'n' is equal to that of 'm'.
+func (m L3PolicyMap) PolicyEqual(n L3PolicyMap) bool {
+	if m.IPv6Count != n.IPv6Count || m.IPv4Count != n.IPv4Count {
+		return false
+	}
+	for key, value := range m.Map {
+		if !ipnetEqual(n.Map[key], value) {
+			return false
+		}
+	}
+	return true
+}
+
 // L3Policy contains L3 policy maps for ingress and egress.
 type L3Policy struct {
 	Ingress L3PolicyMap
@@ -153,6 +171,17 @@ func (l3 *L3Policy) DeepCopy() *L3Policy {
 		Ingress: l3.Ingress.DeepCopy(),
 		Egress:  l3.Egress.DeepCopy(),
 	}
+}
+
+// PolicyEqual returns true if policy described by 'n' is equal to that of 'l3'.
+func (l3 *L3Policy) PolicyEqual(n *L3Policy) bool {
+	if l3 == nil && n == nil {
+		return true
+	}
+	if l3 == nil || n == nil {
+		return false
+	}
+	return l3.Ingress.PolicyEqual(n.Ingress) && l3.Egress.PolicyEqual(n.Egress)
 }
 
 // GetModel returns the API model representation of the L3Policy.

@@ -31,8 +31,51 @@ const (
 	WildcardEndpointSelector = iota
 )
 
+func httpEqual(a, b api.PortRuleHTTP) bool {
+	if a.Path != b.Path ||
+		a.Method != b.Method ||
+		a.Host != b.Host ||
+		len(a.Headers) != len(b.Headers) {
+		return false
+	}
+
+	for i, value := range a.Headers {
+		if b.Headers[i] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func kafkaEqual(a, b api.PortRuleKafka) bool {
+	return a.APIVersion == b.APIVersion && a.APIKey == b.APIKey && a.Topic == b.Topic
+}
+
 // L7DataMap contains a map of L7 rules per endpoint where key is a hash of EndpointSelector
 type L7DataMap map[uint64]api.L7Rules
+
+func (dm L7DataMap) Equal(dm2 L7DataMap) bool {
+	if len(dm) != len(dm2) {
+		return false
+	}
+	for key, v := range dm {
+		var v2 api.L7Rules
+		if v2, ok := dm2[key]; !ok || len(v.HTTP) != len(v2.HTTP) || len(v.Kafka) != len(v2.Kafka) {
+			return false
+		}
+		for i, h := range v.HTTP {
+			if !httpEqual(h, v2.HTTP[i]) {
+				return false
+			}
+		}
+		for i, k := range v.Kafka {
+			if !kafkaEqual(k, v2.Kafka[i]) {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // L7ParserType is the type used to indicate what L7 parser to use and
 // defines all supported types of L7 parsers
@@ -63,14 +106,33 @@ type L4Filter struct {
 	Ingress bool
 }
 
-func (dm L7DataMap) addRulesForEndpoints(rules api.L7Rules,
-	fromEndpoints []api.EndpointSelector) error {
+// PolicyEqual returns true if the L4 filters are the same.
+func (l4 L4Filter) PolicyEqual(l4b L4Filter) bool {
+	if l4.Port != l4b.Port ||
+		l4.Protocol != l4b.Protocol ||
+		len(l4.FromEndpoints) != len(l4b.FromEndpoints) ||
+		l4.L7Parser != l4b.L7Parser ||
+		l4.L7RedirectPort != l4b.L7RedirectPort ||
+		!l4.L7RulesPerEp.Equal(l4b.L7RulesPerEp) ||
+		l4.Ingress != l4b.Ingress {
+		return false
+	}
+	// different order => not equal
+	for i, eps := range l4.FromEndpoints {
+		if !eps.Equal(l4b.FromEndpoints[i]) {
+			return false
+		}
+	}
+	return true
+}
 
+func (dm L7DataMap) addRulesForEndpoints(rules api.L7Rules, fromEndpoints []api.EndpointSelector) error {
 	if rules.Len() == 0 {
 		return nil
 	}
 	if len(fromEndpoints) > 0 {
 		for _, ep := range fromEndpoints {
+			// XXX: Explain why Hash collisions are not harmful here?
 			hash, err := ep.Hash()
 			if err != nil || hash == 0 {
 				return fmt.Errorf("Could not hash (%d) endpoint %e", hash, err)
@@ -173,6 +235,19 @@ func (l4 L4Filter) matchesLabels(labels labels.LabelArray) bool {
 // L4PolicyMap is a list of L4 filters indexable by protocol/port
 // key format: "port/proto"
 type L4PolicyMap map[string]L4Filter
+
+// PolicyEqual returns true if the L4 policy maps are the same.
+func (l4 L4PolicyMap) PolicyEqual(l4b L4PolicyMap) bool {
+	if len(l4) != len(l4b) {
+		return false
+	}
+	for key, value := range l4 {
+		if l4b[key].PolicyEqual(value) {
+			return false
+		}
+	}
+	return true
+}
 
 // HasRedirect returns true if at least one L4 filter contains a port
 // redirection
@@ -309,4 +384,15 @@ func (l4 *L4Policy) DeepCopy() *L4Policy {
 	}
 
 	return cpy
+}
+
+// PolicyEqual returns true if the L4 policies are the same.
+func (l4 *L4Policy) PolicyEqual(l4b *L4Policy) bool {
+	if l4 == nil && l4b == nil {
+		return true
+	}
+	if l4 == nil || l4b == nil {
+		return false
+	}
+	return l4.Ingress.PolicyEqual(l4b.Ingress) && l4.Egress.PolicyEqual(l4b.Egress)
 }

@@ -245,22 +245,25 @@ func (c *Consumable) removeFromMaps(id NumericIdentity) {
 
 // AllowConsumerLocked adds the given consumer ID to the Consumable's
 // consumers map. Must be called with Consumable mutex Locked.
-func (c *Consumable) AllowConsumerLocked(cache *ConsumableCache, id NumericIdentity) {
-	if consumer := c.getConsumer(id); consumer == nil {
+// returns true if changed, false if not
+func (c *Consumable) AllowConsumerLocked(cache *ConsumableCache, id NumericIdentity) bool {
+	consumer := c.getConsumer(id)
+	if consumer == nil {
 		log.Debugf("New consumer %d for consumable %+v", id, c)
 		c.addToMaps(id)
 		c.Consumers[id.StringID()] = NewConsumer(id)
-	} else {
-		consumer.DeletionMark = false
+		return true
 	}
+	consumer.DeletionMark = false
+	return false // not changed.
 }
 
 // AllowConsumerAndReverseLocked adds the given consumer ID to the Consumable's
 // consumers map and the given consumable to the given consumer's consumers map.
 // Must be called with Consumable mutex Locked.
-func (c *Consumable) AllowConsumerAndReverseLocked(cache *ConsumableCache, id NumericIdentity) {
+func (c *Consumable) AllowConsumerAndReverseLocked(cache *ConsumableCache, id NumericIdentity) bool {
 	log.Debugf("Allowing direction %d -> %d", id, c.ID)
-	c.AllowConsumerLocked(cache, id)
+	changed := c.AllowConsumerLocked(cache, id)
 
 	if reverse := cache.Lookup(id); reverse != nil {
 		log.Debugf("Allowing reverse direction %d -> %d", c.ID, id)
@@ -268,9 +271,10 @@ func (c *Consumable) AllowConsumerAndReverseLocked(cache *ConsumableCache, id Nu
 			reverse.addToMaps(c.ID)
 			reverse.ReverseRules[c.ID] = NewConsumer(c.ID)
 		}
-	} else {
-		log.Warningf("Allowed a consumer %d->%d which can't be found in the reverse direction", c.ID, id)
+		return true
 	}
+	log.Warningf("Allowed a consumer %d->%d which can't be found in the reverse direction", c.ID, id)
+	return changed
 }
 
 // BanConsumerLocked removes the given consumer from the Consumable's consumers

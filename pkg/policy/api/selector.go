@@ -35,6 +35,31 @@ type EndpointSelector struct {
 	*metav1.LabelSelector
 }
 
+// Equal returns true if endpoints are equal
+func (n EndpointSelector) Equal(m EndpointSelector) bool {
+	if len(n.MatchLabels) != len(m.MatchLabels) ||
+		len(n.MatchExpressions) != len(m.MatchExpressions) {
+		return false
+	}
+	for k, v := range n.MatchLabels {
+		if v != m.MatchLabels[k] {
+			return false
+		}
+	}
+	for i, a := range n.MatchExpressions {
+		b := m.MatchExpressions[i]
+		if a.Key != b.Key || a.Operator != b.Operator || len(a.Values) != len(b.Values) {
+			return false
+		}
+		for i2, v2 := range a.Values {
+			if v2 != b.Values[i2] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // String returns a string representation of EndpointSelector.
 func (n EndpointSelector) String() string {
 	j, _ := n.MarshalJSON()

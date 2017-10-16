@@ -255,6 +255,13 @@ type Endpoint struct {
 	// is populated based on the policy.
 	Consumable *policy.Consumable `json:"-"`
 
+	// L4Policy is the L4Policy in effect for the
+	// endpoint. Normally it is the same as the Consumable's
+	// L4Policy, but this is needed during policy recalculation to
+	// be able to clean up PolicyMap after consumable has already
+	// been updated.
+	L4Policy *policy.L4Policy `json:"-"`
+
 	// PolicyMap is the policy related state of the datapath including
 	// reference to all policy related BPF
 	PolicyMap *policymap.PolicyMap `json:"-"`
