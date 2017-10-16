@@ -30,6 +30,7 @@ import (
 	"github.com/cilium/cilium/common"
 	"github.com/cilium/cilium/pkg/byteorder"
 	"github.com/cilium/cilium/pkg/geneve"
+	"github.com/cilium/cilium/pkg/logfields"
 	"github.com/cilium/cilium/pkg/maps/cidrmap"
 	"github.com/cilium/cilium/pkg/maps/ctmap"
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
@@ -308,11 +309,9 @@ func writeGeneve(prefix string, e *Endpoint) ([]byte, error) {
 	return rawData, nil
 }
 
-func (e *Endpoint) runInit(libdir, rundir, epdir, debug string) error {
-	e.Mutex.RLock()
-	args := []string{libdir, rundir, epdir, e.IfName, debug}
+func (e *Endpoint) runInit(libdir, rundir, epdir, ifName, debug string) error {
+	args := []string{libdir, rundir, epdir, ifName, debug}
 	prog := filepath.Join(libdir, "join_ep.sh")
-	e.Mutex.RUnlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), ExecTimeout)
 	defer cancel()
@@ -334,8 +333,44 @@ func (e *Endpoint) runInit(libdir, rundir, epdir, debug string) error {
 	return nil
 }
 
+// Implement EndpointFrontend interface, holds values read from the endpoint from which the
+// bpf code and maps were generated; to be used after the lock is released.
+type epFrontend struct {
+	keys     []lxcmap.EndpointKey
+	value    *lxcmap.EndpointInfo
+	ifName   string
+	revision uint64
+}
+
+// Must be called when endpoint is still locked.
+func (e *Endpoint) createEpFronted() *epFrontend {
+	ep := &epFrontend{ifName: e.IfName, revision: e.nextPolicyRevision}
+	var err error
+	ep.keys = e.GetBPFKeys()
+	ep.value, err = e.GetBPFValue()
+	if err != nil {
+		log.Errorf("Endpoint %d getBPFValue failed: %v", e.ID, err)
+		return nil
+	}
+	return ep
+}
+
+// GetBPFKeys returns all keys which should represent this endpoint in the BPF
+// endpoints map
+func (ep *epFrontend) GetBPFKeys() []lxcmap.EndpointKey {
+	return ep.keys
+}
+
+// GetBPFValue returns the value which should represent this endpoint in the
+// BPF endpoints map
+// Must only be called if init() succeeded.
+func (ep *epFrontend) GetBPFValue() (*lxcmap.EndpointInfo, error) {
+	return ep.value, nil
+}
+
 // regenerateBPF rewrites all headers and updates all BPF maps to reflect the
 // specified endpoint.
+// Must be called with endpoint mutex not held.
 func (e *Endpoint) regenerateBPF(owner Owner, epdir string) error {
 	var err error
 
@@ -344,15 +379,44 @@ func (e *Endpoint) regenerateBPF(owner Owner, epdir string) error {
 	owner.GetCompilationLock().RLock()
 	defer owner.GetCompilationLock().RUnlock()
 
-	e.Mutex.RLock()
+	e.Mutex.Lock()
+
+	// If endpoint was marked as disconnected then
+	// it won't be regenerated
+	if e.IsDisconnectingLocked() {
+		e.Mutex.Unlock()
+		log.WithFields(log.Fields{
+			logfields.EndpointID: e.StringID(),
+		}).Debug("Endpoint disconnected, skipping build")
+		return fmt.Errorf("endpoint disconnected, skipping build")
+	}
+	e.State = StateRegenerating
+	defer func() { e.State = StateWaitingToRegenerate }()
+
+	if e.Consumable != nil {
+		// Regenerate policy and apply any options resulting in the
+		// policy change.
+		if _, err = e.regeneratePolicy(owner); err != nil {
+			e.Mutex.Unlock()
+			return fmt.Errorf("Unable to regenerate policy for '%s': %s",
+				e.PolicyMap.String(), err)
+		}
+	}
+
 	if err = e.writeHeaderfile(epdir, owner); err != nil {
-		e.Mutex.RUnlock()
+		e.Mutex.Unlock()
 		return fmt.Errorf("unable to write header file: %s", err)
 	}
-	e.Mutex.RUnlock()
+
+	epFrontend := e.createEpFronted()
+	if epFrontend == nil {
+		e.Mutex.Unlock()
+		return fmt.Errorf("unable to cache endpoint information.")
+	}
 
 	// If dry mode is enabled, no changes to BPF maps are performed
 	if owner.DryModeEnabled() {
+		e.Mutex.Unlock()
 		return nil
 	}
 
@@ -365,7 +429,6 @@ func (e *Endpoint) regenerateBPF(owner Owner, epdir string) error {
 	createdIPv4EgressMap := false
 	defer func() {
 		if err != nil {
-			e.Mutex.Lock()
 			if createdPolicyMap {
 				// Remove policy map file only if it was created
 				// in this update cycle
@@ -388,11 +451,8 @@ func (e *Endpoint) regenerateBPF(owner Owner, epdir string) error {
 			if createdIPv4EgressMap {
 				e.L3Maps.DestroyBpfMap(IPv4Egress, e.IPv4EgressMapPathLocked())
 			}
-			e.Mutex.Unlock()
 		}
 	}()
-
-	e.Mutex.Lock()
 
 	if e.PolicyMap == nil {
 		e.PolicyMap, createdPolicyMap, err = policymap.OpenMap(e.PolicyMapPathLocked())
@@ -446,25 +506,22 @@ func (e *Endpoint) regenerateBPF(owner Owner, epdir string) error {
 			}
 		}
 	}
-
 	e.Mutex.Unlock()
 
 	libdir := owner.GetBpfDir()
 	rundir := owner.GetStateDir()
 	debug := strconv.FormatBool(owner.DebugEnabled())
 
-	if err = e.runInit(libdir, rundir, epdir, debug); err != nil {
-		return err
-	}
-
-	// The last operation hooks the endpoint into the endpoint table and exposes it
-	err = lxcmap.WriteEndpoint(e)
-
-	// Mark the endpoint to be running the policy revision it was
-	// compiled for
+	err = e.runInit(libdir, rundir, epdir, epFrontend.ifName, debug)
 	if err == nil {
-		e.bumpPolicyRevision()
+		// The last operation hooks the endpoint into the endpoint table and exposes it
+		err = lxcmap.WriteEndpoint(epFrontend)
+		if err == nil {
+			// Mark the endpoint to be running the policy revision it was
+			// compiled for
+			e.bumpPolicyRevision(epFrontend.revision)
+		}
 	}
 
-	return err
+	return nil
 }

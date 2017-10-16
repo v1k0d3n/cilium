@@ -171,8 +171,11 @@ const (
 	// for an identity from the KVStore.
 	StateWaitingForIdentity = string(models.EndpointStateWaitingForIdentity)
 
-	// StateReady specifies if the endpoint is read to be used.
+	// StateReady specifies if the endpoint is ready to be used.
 	StateReady = string(models.EndpointStateReady)
+
+	// StateWaitingToRegenerate specifies when the endpoint needs to be regenerated, but regeneration has not started yet.
+	StateWaitingToRegenerate = string(models.EndpointStateWaitingToRegenerate)
 
 	// StateRegenerating specifies when the endpoint is being regenerated.
 	StateRegenerating = string(models.EndpointStateRegenerating)
@@ -299,12 +302,21 @@ type Endpoint struct {
 	// updated to and that will become effective with the next regenerate
 	nextPolicyRevision uint64
 
+	// forcePolicyCompute full endpoint policy recomputattion
+	// Set when endpoint options have been changed. Cleared right before releasing the
+	// endpoint mutex after policy recalculation.
+	forcePolicyCompute bool
+
 	// BuildMutex synchronizes builds of individual endpoints and locks out
 	// deletion during builds
 	//
 	// FIXME: Mark private once endpoint deletion can be moved into
 	// `pkg/endpoint`
 	BuildMutex lock.Mutex
+
+	// NeedBpfBuild tells if endpoint options or other configuration that have
+	// changed in a way that requires regeneration of bpf maps and/or programs
+	NeedBpfBuild bool
 }
 
 // NewEndpointFromChangeModel creates a new endpoint from a request
@@ -746,24 +758,23 @@ func (e *Endpoint) String() string {
 	return string(b)
 }
 
-// PolicyID returns an identifier for the endpoint's policy. Must be called
-// with the endpoint's lock held.
-func (e *Endpoint) PolicyID() string {
-	return fmt.Sprintf("Policy ID %d", e.ID)
-}
-
 func OptionChanged(key string, value bool, data interface{}) {
 	e := data.(*Endpoint)
 	switch key {
 	case OptionConntrack:
 		e.invalidatePolicy()
 	}
+	e.ForcePolicyCompute()
 }
 
 // ApplyOptsLocked applies the given options to the endpoint's options and
 // returns true if there were any options changed.
 func (e *Endpoint) ApplyOptsLocked(opts map[string]string) bool {
 	return e.Opts.Apply(opts, OptionChanged, e) > 0
+}
+
+func (e *Endpoint) ForcePolicyCompute() {
+	e.forcePolicyCompute = true
 }
 
 func (e *Endpoint) SetDefaultOpts(opts *option.BoolOptions) {
@@ -1056,6 +1067,7 @@ func (e *Endpoint) Update(owner Owner, opts models.ConfigurationMap) error {
 		// No changes have been applied, skip update
 		return nil
 	}
+	e.SetRegenerateStateLocked()
 	e.Mutex.Unlock()
 
 	// FIXME: restore previous configuration on failure
@@ -1178,14 +1190,17 @@ func (e *Endpoint) CreateDirectory() error {
 	return nil
 }
 
-func (e *Endpoint) RegenerateIfReady(owner Owner) error {
-	e.Mutex.RLock()
-	if e.State != StateReady && e.State != StateWaitingForIdentity {
-		e.Mutex.RUnlock()
-		return nil
-	}
-	e.Mutex.RUnlock()
+// ReadyToRegenerateLocked returns true if the caller must call
+// RegenerateNow() after releasing the endpoint lock.
+func (e *Endpoint) ReadyToRegenerateLocked() bool {
+	return (e.State == StateReady || e.State == StateWaitingForIdentity ||
+		e.State == StateWaitingToRegenerate) &&
+		e.SetRegenerateStateLocked()
+}
 
+// RegenerateNow should only be called if a preceding
+// ReadyToRegenerateLocked() returned true.
+func (e *Endpoint) RegenerateNow(owner Owner) error {
 	if !<-e.Regenerate(owner) {
 		return fmt.Errorf("error while regenerating endpoint."+
 			" For more info run: 'cilium endpoint get %d'", e.ID)
@@ -1268,9 +1283,11 @@ func (e *Endpoint) SetState(state string) {
 
 // bumpPolicyRevision marks the endpoint to be running the next scheduled
 // policy revision as setup by e.regenerate(). endpoint.Mutex may not be held
-func (e *Endpoint) bumpPolicyRevision() {
+func (e *Endpoint) bumpPolicyRevision(revision uint64) {
 	e.Mutex.Lock()
-	e.policyRevision = e.nextPolicyRevision
+	if revision > e.policyRevision {
+		e.policyRevision = revision
+	}
 	e.Mutex.Unlock()
 }
 

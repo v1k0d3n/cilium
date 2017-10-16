@@ -153,6 +153,7 @@ func (ds *DaemonSuite) generateEPs(baseDir string, epsWanted []*e.Endpoint, epsM
 	epsNames := []string{}
 	for _, ep := range epsWanted {
 		os.MkdirAll(filepath.Join(baseDir, ep.StringID()), 777)
+		ep.SetRegenerateState()
 		<-ep.Regenerate(ds)
 		epsNames = append(epsNames, ep.StringID())
 	}

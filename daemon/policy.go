@@ -61,20 +61,14 @@ func (d *Daemon) GetCachedLabelList(ID policy.NumericIdentity) (labels.LabelArra
 	return l, nil
 }
 
-func invalidateCache() {
-	policy.GetConsumableCache().IncrementIteration()
-}
-
 // TriggerPolicyUpdates triggers policy updates for every daemon's endpoint.
 // Returns a waiting group which signalizes when all endpoints are regenerated.
-func (d *Daemon) TriggerPolicyUpdates(added []policy.NumericIdentity) *sync.WaitGroup {
-	if len(added) == 0 {
-		log.Debugf("Full policy recalculation triggered")
-		invalidateCache()
+func (d *Daemon) TriggerPolicyUpdates(force bool) *sync.WaitGroup {
+	if force {
+		d.policy.BumpRevision() // force policy recalculation
+		log.Debugf("Forced policy recalculation triggered")
 	} else {
-		log.Debugf("Partial policy recalculation triggered: %d", added)
-		// FIXME: Invalidate only cache that is affected
-		invalidateCache()
+		log.Debugf("Full policy recalculation triggered")
 	}
 	return endpointmanager.TriggerPolicyUpdates(d)
 }
@@ -254,7 +248,7 @@ func (d *Daemon) PolicyAdd(rules api.Rules, opts *AddOptions) (uint64, error) {
 	}
 
 	log.Info("New policy imported, regenerating...")
-	d.TriggerPolicyUpdates([]policy.NumericIdentity{})
+	d.TriggerPolicyUpdates(false)
 
 	return rev, nil
 }
@@ -279,7 +273,7 @@ func (d *Daemon) PolicyDelete(labels labels.LabelArray) (uint64, error) {
 		// to check which consumables were removed with the new policy.
 		oldConsumables := policy.GetConsumableCache().GetConsumables()
 
-		wg := d.TriggerPolicyUpdates([]policy.NumericIdentity{})
+		wg := d.TriggerPolicyUpdates(false)
 
 		// If daemon doesn't enforce policy then skip the cleanup
 		// of CT entries.

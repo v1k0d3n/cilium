@@ -107,6 +107,7 @@ func (d *Daemon) SyncState(dir string, clean bool) error {
 				return
 			}
 
+			ep.SetRegenerateState()
 			if buildSuccess := <-ep.Regenerate(d); !buildSuccess {
 				log.Warningf("Failed while regenerating endpoint %d: %s", ep.ID, err)
 				wg <- false

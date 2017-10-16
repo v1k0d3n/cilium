@@ -234,7 +234,7 @@ func LookupLocked(id string) (*endpoint.Endpoint, error) {
 	}
 }
 
-// TriggerPolicyUpdates calls TriggerPolicyUpdates for each endpoint and
+// TriggerPolicyUpdates calls TriggerPolicyUpdatesLocked for each endpoint and
 // regenerates as required. During this process, the endpoint list is locked
 // and cannot be modified.
 // Returns a waiting group that can be used to know when all the endpoints are
@@ -248,15 +248,23 @@ func TriggerPolicyUpdates(owner endpoint.Owner) *sync.WaitGroup {
 
 	for k := range Endpoints {
 		go func(ep *endpoint.Endpoint, wg *sync.WaitGroup) {
-			policyChanges, err := ep.TriggerPolicyUpdates(owner)
+			ep.Mutex.Lock()
+			policyChanges, err := ep.TriggerPolicyUpdatesLocked(owner)
+			if err == nil && policyChanges {
+				policyChanges = ep.SetRegenerateStateLocked()
+			}
+			ep.Mutex.Unlock()
+
 			if err != nil {
 				log.Warningf("Error while handling policy updates for endpoint %s", err)
 				ep.LogStatus(endpoint.Policy, endpoint.Failure, err.Error())
 			} else {
-				ep.LogStatusOK(endpoint.Policy, "Policy regenerated")
-			}
-			if policyChanges {
-				<-ep.Regenerate(owner)
+				if policyChanges {
+					<-ep.Regenerate(owner)
+					ep.LogStatusOK(endpoint.Policy, "Policy regenerated")
+				} else {
+					ep.LogStatusOK(endpoint.Policy, "Policy regeneration skipped")
+				}
 			}
 			wg.Done()
 		}(Endpoints[k], &wg)

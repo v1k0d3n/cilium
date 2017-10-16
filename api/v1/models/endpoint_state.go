@@ -30,6 +30,8 @@ const (
 	EndpointStateWaitingForIdentity EndpointState = "waiting-for-identity"
 	// EndpointStateNotReady captures enum value "not-ready"
 	EndpointStateNotReady EndpointState = "not-ready"
+	// EndpointStateWaitingToRegenerate captures enum value "waiting-to-regenerate"
+	EndpointStateWaitingToRegenerate EndpointState = "waiting-to-regenerate"
 	// EndpointStateRegenerating captures enum value "regenerating"
 	EndpointStateRegenerating EndpointState = "regenerating"
 	// EndpointStateReady captures enum value "ready"

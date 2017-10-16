@@ -161,9 +161,14 @@ func (h *putEndpointID) Handle(params PutEndpointIDParams) middleware.Responder 
 		return apierror.Error(PutEndpointIDFailedCode, err)
 	}
 
-	if err := ep.RegenerateIfReady(h.d); err != nil {
-		ep.RemoveDirectory()
-		return apierror.Error(PatchEndpointIDFailedCode, err)
+	ep.Mutex.Lock()
+	ready := ep.ReadyToRegenerateLocked()
+	ep.Mutex.Unlock()
+	if ready {
+		if err := ep.RegenerateNow(h.d); err != nil {
+			ep.RemoveDirectory()
+			return apierror.Error(PatchEndpointIDFailedCode, err)
+		}
 	}
 
 	endpointmanager.Insert(ep)
@@ -175,6 +180,7 @@ func (h *putEndpointID) Handle(params PutEndpointIDParams) middleware.Responder 
 		errLabelsAdd := h.d.UpdateSecLabels(params.ID, add, labels.Labels{})
 		endpointmanager.Mutex.Lock()
 		if errLabelsAdd != nil {
+			// XXX: Why should the endpoint remain in this case?
 			log.Errorf("Could not add labels %v while creating an ep %s due to %s", add, params.ID, errLabelsAdd)
 			return errLabelsAdd
 		}
@@ -212,8 +218,6 @@ func (h *patchEndpointID) Handle(params PatchEndpointIDParams) middleware.Respon
 		return NewPatchEndpointIDNotFound()
 	}
 
-	changed := false
-
 	// FIXME: Support changing these?
 	//  - container ID
 	//  - docker network id
@@ -222,6 +226,9 @@ func (h *patchEndpointID) Handle(params PatchEndpointIDParams) middleware.Respon
 	//  Support arbitrary changes? Support only if unset?
 
 	ep.Mutex.Lock()
+
+	changed := false
+
 	if epTemplate.InterfaceIndex != 0 {
 		ep.IfIndex = int(epTemplate.InterfaceIndex)
 		changed = true
@@ -266,13 +273,17 @@ func (h *patchEndpointID) Handle(params PatchEndpointIDParams) middleware.Respon
 		ep.State = endpoint.StateReady
 		changed = true
 	}
+
+	if changed {
+		ep.ForcePolicyCompute()
+		changed = ep.ReadyToRegenerateLocked()
+	}
 	ep.Mutex.Unlock()
 
 	if changed {
-		if err := ep.RegenerateIfReady(h.d); err != nil {
+		if err := ep.RegenerateNow(h.d); err != nil {
 			return apierror.Error(PatchEndpointIDFailedCode, err)
 		}
-
 		// FIXME: Special return code to indicate regeneration happened?
 	}
 
@@ -405,7 +416,6 @@ func (d *Daemon) EndpointUpdate(id string, opts models.ConfigurationMap) error {
 	}
 
 	if ep != nil {
-		invalidateCache()
 		if err := ep.Update(d, opts); err != nil {
 			switch err.(type) {
 			case endpoint.UpdateValidationError:
@@ -518,6 +528,7 @@ func (d *Daemon) UpdateSecLabels(id string, add, del labels.Labels) middleware.R
 		return NewPutEndpointIDLabelsNotFound()
 	}
 
+	// This is safe only if no other goroutine may change the labels in parallel
 	ep.Mutex.RLock()
 	oldLabels := ep.OpLabels.DeepCopy()
 	ep.Mutex.RUnlock()
@@ -582,9 +593,15 @@ func (d *Daemon) UpdateSecLabels(id string, add, del labels.Labels) middleware.R
 	ep.LabelsHash = newHash
 	ep.OpLabels = *oldLabels
 	ep.SetIdentity(d, identity)
+	ready := ep.SetRegenerateStateLocked()
+	if ready {
+		ep.ForcePolicyCompute()
+	}
 	ep.Mutex.Unlock()
 
-	ep.Regenerate(d)
+	if ready {
+		ep.Regenerate(d)
+	}
 
 	return nil
 }
@@ -667,11 +684,8 @@ func (d *Daemon) EndpointLabelsUpdate(ep *endpoint.Endpoint, identityLabels, inf
 
 	// Skip building endpoint if identity is invalid or unchanged
 	if identity.ID != oldIdentity {
-		ep.Regenerate(d)
-
-		// FIXME: Does this rebuild epID twice?
-		d.TriggerPolicyUpdates([]policy.NumericIdentity{identity.ID})
+		// Triggers policy updates on all endpoints
+		d.TriggerPolicyUpdates(true)
 	}
-
 	return nil
 }

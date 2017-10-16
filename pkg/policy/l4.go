@@ -388,7 +388,7 @@ func (l4 *L4Policy) DeepCopy() *L4Policy {
 
 // PolicyEqual returns true if the L4 policies are the same.
 func (l4 *L4Policy) PolicyEqual(l4b *L4Policy) bool {
-	if l4 == nil && l4b == nil {
+	if l4 == l4b {
 		return true
 	}
 	if l4 == nil || l4b == nil {

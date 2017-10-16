@@ -121,6 +121,7 @@ func (ds *DaemonSuite) TestUpdateConsumerMap(c *C) {
 		os.RemoveAll("1_backup")
 	}()
 	e.SetIdentity(ds.d, qaBarSecLblsCtx)
+	e.SetRegenerateState()
 	buildSuccess := <-e.Regenerate(ds.d)
 	c.Assert(buildSuccess, Equals, true)
 	c.Assert(e.Allows(qaBarSecLblsCtx.ID), Equals, false)
@@ -139,6 +140,7 @@ func (ds *DaemonSuite) TestUpdateConsumerMap(c *C) {
 	}
 	e.Opts = option.NewBoolOptions(&options.Library)
 	e.SetIdentity(ds.d, prodBarSecLblsCtx)
+	e.SetRegenerateState()
 	buildSuccess = <-e.Regenerate(ds.d)
 	c.Assert(buildSuccess, Equals, true)
 	c.Assert(e.Allows(0), Equals, false)
