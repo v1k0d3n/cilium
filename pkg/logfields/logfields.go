@@ -37,6 +37,8 @@ const (
 	// REVIEW Should this match pkg/proxy/accesslog.FieldFilePath ?
 	Path = "path"
 
+	SHA = "sha"
+
 	K8sNode               = "ciliumNode"
 	K8sNodeID             = "ciliumNodeID"
 	K8sSvcName            = "k8sSvcName"
@@ -53,6 +55,8 @@ const (
 	IPAddr                = "ipAddr"
 	Port                  = "port"
 	Protocol              = "protocol"
+	L4Addr                = "l4Addr"
+	L4AddrID              = "l4AddrID"
 	V4Prefix              = "v4Prefix"
 	V6Prefix              = "v6Prefix"
 
