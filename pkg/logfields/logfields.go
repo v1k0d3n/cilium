@@ -81,4 +81,8 @@ const (
 
 	BPFServiceKey = "bpfServiceKey"
 	BPFService    = "bpfService"
+
+	Interface = "interface"
+	Veth      = "veth"
+	VethPair  = "vethPair"
 )

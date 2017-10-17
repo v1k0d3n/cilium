@@ -29,6 +29,7 @@ import (
 	"github.com/cilium/cilium/common/plugins"
 	"github.com/cilium/cilium/pkg/client"
 	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/logfields"
 
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/containernetworking/cni/pkg/ns"
@@ -148,7 +149,7 @@ func renameLink(curName, newName string) error {
 func releaseIP(client *client.Client, ip string) {
 	if ip != "" {
 		if err := client.IPAMReleaseIP(ip); err != nil {
-			log.Warningf("Unable to release IP %s: %s", ip, err)
+			log.WithError(err).WithField(logfields.IPAddr, ip).Warning("Unable to release IP")
 		}
 	}
 }
@@ -159,7 +160,11 @@ func releaseIPs(client *client.Client, addr *models.EndpointAddressing) {
 }
 
 func addIPConfigToLink(ip addressing.CiliumIP, routes []plugins.Route, link netlink.Link, ifName string) error {
-	log.Debugf("Configuring link %+v/%s with %s", link, ifName, ip.String())
+	log.WithFields(log.Fields{
+		logfields.IPAddr:    ip,
+		"netLink":           logFields.PrintStruct(link),
+		logfields.Interface: ifName,
+	}).Debug("Configuring link")
 
 	addr := &netlink.Addr{IPNet: ip.EndpointPrefix()}
 	if err := netlink.AddrAdd(link, addr); err != nil {
@@ -171,7 +176,7 @@ func addIPConfigToLink(ip addressing.CiliumIP, routes []plugins.Route, link netl
 	sort.Sort(plugins.ByMask(routes))
 
 	for _, r := range routes {
-		log.Debugf("Adding route %+v", r)
+		log.WithField("route", logfields.PrintStruct(r)).Debugf("Adding route")
 		rt := &netlink.Route{
 			LinkIndex: link.Attrs().Index,
 			Scope:     netlink.SCOPE_UNIVERSE,
@@ -333,7 +338,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	defer func() {
 		if err != nil {
 			if err = netlink.LinkDel(veth); err != nil {
-				log.Warningf("failed to clean up and delete veth %q: %s", veth.Name, err)
+				log.WithError(err).WithField(logfields.Veth, veth.Name).Warning("failed to clean up and delete veth")
 			}
 		}
 	}()
