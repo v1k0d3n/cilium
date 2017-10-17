@@ -116,7 +116,7 @@ func EnableEventListener() error {
 		}
 	}()
 
-	log.Debugf("Started to listen for containerd events")
+	log.Debug("Started to listen for containerd events")
 
 	return nil
 }
@@ -139,9 +139,7 @@ func syncWithRuntime() {
 
 		wg.Add(1)
 		go func(wg *sync.WaitGroup, id string) {
-			log.WithFields(log.Fields{
-				logfields.ContainerID: shortContainerID(id),
-			}).Debug("Periodic synchronization of container")
+			log.WithField(logfields.ContainerID, shortContainerID(id)).Debug("Periodic synchronization of container")
 
 			handleCreateContainer(id, false)
 			wg.Done()
@@ -157,7 +155,7 @@ func listenForDockerEvents(eventQueue *containerEvents, reader io.ReadCloser) {
 	for scanner.Scan() {
 		var e dTypesEvents.Message
 		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-			log.Errorf("Error while unmarshalling event: %+v", e)
+			log.WithError(err).Error("Error while unmarshalling event")
 		}
 
 		if e.ID != "" {
@@ -170,7 +168,7 @@ func listenForDockerEvents(eventQueue *containerEvents, reader io.ReadCloser) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Errorf("Error while reading events: %+v", err)
+		log.WithError(err).Error("Error while reading events")
 	}
 }
 
@@ -200,10 +198,10 @@ func processEvent(m dTypesEvents.Message) {
 }
 
 func getCiliumEndpointID(cont *dTypes.ContainerJSON) uint16 {
+	scopedLog := log.WithField(logfields.ContainerID, shortContainerID(cont.ID))
+
 	if cont.NetworkSettings == nil {
-		log.WithFields(log.Fields{
-			logfields.ContainerID: shortContainerID(cont.ID),
-		}).Debug("No network settings included in event")
+		scopedLog.Debug("No network settings included in event")
 		return 0
 	}
 
@@ -211,9 +209,7 @@ func getCiliumEndpointID(cont *dTypes.ContainerJSON) uint16 {
 		return ciliumIP.EndpointID()
 	}
 
-	log.WithFields(log.Fields{
-		logfields.ContainerID: shortContainerID(cont.ID),
-	}).Debug("IP address assigned by Cilium could not be derived from container event")
+	scopedLog.Debug("IP address assigned by Cilium could not be derived from container event")
 
 	return 0
 }
@@ -224,9 +220,11 @@ func getCiliumIPv6(networks map[string]*dNetwork.EndpointSettings) *addressing.C
 			continue
 		}
 
+		scopedLog := log.WithField(logfields.EndpointID, contNetwork.EndpointID)
+
 		ipv6gw := net.ParseIP(contNetwork.IPv6Gateway)
 		if !ipv6gw.Equal(nodeaddress.GetIPv6Router()) {
-			log.Debugf("Skipping network %s because of gateway mismatch", contNetwork)
+			scopedLog.WithField("obj", contNetwork).Debug("Skipping networt because of gateway mismatch")
 			continue
 		}
 		ip, err := addressing.NewCiliumIPv6(contNetwork.GlobalIPv6Address)
@@ -249,7 +247,10 @@ func fetchK8sLabels(dockerLbls map[string]string) (map[string]string, error) {
 	if podName == "" {
 		return nil, nil
 	}
-	log.Debugf("Connecting to kubernetes to retrieve labels for pod %s ns %s", podName, ns)
+	log.WithFields(log.Fields{
+		logfields.K8sNamespace: ns,
+		logfields.K8sPodName:   podName,
+	}).Debug("Connecting to kubernetes to retrieve labels for pod in ns")
 
 	result, err := k8s.Client().CoreV1().Pods(ns).Get(podName, metav1.GetOptions{})
 	if err != nil {
@@ -282,17 +283,17 @@ func getFilteredLabels(allLabels map[string]string) (identityLabels, information
 
 func handleCreateContainer(id string, retry bool) {
 	maxTries := 5
+	scopedLog := log.WithFields(log.Fields{
+		logfields.ContainerID: shortContainerID(id),
+		"maxRetry":            maxTries,
+	})
 
 	for try := 1; try <= maxTries; try++ {
 		var ciliumID uint16
 
 		if try > 1 {
 			if retry {
-				log.WithFields(log.Fields{
-					logfields.ContainerID: shortContainerID(id),
-					"retry":               try,
-					"maxRetry":            maxTries,
-				}).Debug("Waiting for endpoint representing container to appear")
+				log.WithField("retry", try).Debug("Waiting for endpoint representing container to appear")
 				time.Sleep(time.Duration(try) * time.Second)
 			} else {
 				break
@@ -301,17 +302,13 @@ func handleCreateContainer(id string, retry bool) {
 
 		dockerContainer, identityLabels, informationLabels, err := retrieveDockerLabels(id)
 		if err != nil {
-			log.WithFields(log.Fields{
-				logfields.ContainerID: shortContainerID(id),
-			}).WithError(err).Warning("Unable to inspect container, retrying...")
+			log.WithError(err).WithField("retry", try).Warning("Unable to inspect container, retrying...")
 			continue
 		}
 
 		containerName := dockerContainer.Name
 		if containerName == "" {
-			log.WithFields(log.Fields{
-				logfields.ContainerID: shortContainerID(id),
-			}).Warning("Container name not set in event from containerd")
+			log.WithField("retry", try).Warning("Container name not set in event from containerd")
 		}
 
 		ep := endpointmanager.LookupDockerID(id)
@@ -324,9 +321,9 @@ func handleCreateContainer(id string, retry bool) {
 			}
 		}
 
-		log.WithFields(log.Fields{
-			logfields.ContainerID:    shortContainerID(id),
+		scopedLog.WithFields(log.Fields{
 			logfields.EndpointID:     ciliumID,
+			"retry":                  try,
 			"containerName":          containerName,
 			logfields.IdentityLabels: identityLabels,
 		}).Debug("Trying to associate container with existing endpoint")
@@ -381,9 +378,7 @@ func handleCreateContainer(id string, retry bool) {
 
 	startIgnoringContainer(id)
 
-	log.WithFields(log.Fields{
-		logfields.ContainerID: shortContainerID(id),
-	}).Info("No endpoint appeared representing the container. Likely managed by other plugin")
+	scopedLog.Info("No endpoint appeared representing the container. Likely managed by other plugin")
 }
 
 // retrieveDockerLabels returns the metadata for the container with ID dockerID,
@@ -414,7 +409,8 @@ func IgnoreRunningContainers() {
 		return
 	}
 	for _, cont := range conts {
-		log.Infof("Adding running container %q to the list of ignored containers", cont.ID)
+		scopedLog := log.WithField(logfields.ContainerID, cont.ID)
+		scopedLog.Info("Adding running container to the list of ignored containers")
 		startIgnoringContainer(cont.ID)
 		if cont.NetworkSettings == nil {
 			continue
@@ -427,8 +423,10 @@ func IgnoreRunningContainers() {
 			continue
 		}
 		// TODO Release this address when the ignored container leaves
-		log.Infof("Found container running with potential "+
-			"collision IP address %q, adding to the list "+
-			"of allocated IPs", cIP.IP().String())
+		scopedLog.WithFields(log.Fields{
+			logfields.IPAddr: cIP.IP(),
+		}).Info("Found container running with potential " +
+			"collision IP address, adding to the list " +
+			"of allocated IPs")
 	}
 }
